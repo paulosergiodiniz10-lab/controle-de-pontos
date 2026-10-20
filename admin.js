@@ -576,7 +576,7 @@ function consolidarLogsBrutos(logsArray) {
 
         if (log.observacao && log.observacao.trim() !== "") {
             espelhosAgrupados[chaveChave].observacoes.push({
-                tipo: log.tipo,
+                tipo: log.tipo || "Ajuste Manual",
                 texto: log.observacao
             });
         }
@@ -723,13 +723,13 @@ function preencherCalendarioCompleto(dadosConsolidados, dataInicioStr, dataFimSt
             listaCompleta.push(reg);
         } else {
             let cargaObrigatoria = 0;
-            if (diaDaSemana === 6) {
+            if (diaDaSemana === 6) { 
                 const minCalc = bolarTempoParaMinutos(cargaSab);
                 cargaObrigatoria = minCalc !== null ? minCalc : 240;
-            } else if (diaDaSemana === 0) {
+            } else if (diaDaSemana === 0) { 
                 const minCalc = bolarTempoParaMinutos(cargaDom);
                 cargaObrigatoria = minCalc !== null ? minCalc : 0;
-            } else {
+            } else { 
                 const minCalc = bolarTempoParaMinutos(cargaSegSex);
                 cargaObrigatoria = minCalc !== null ? minCalc : 480;
             }
@@ -774,7 +774,7 @@ window.abrirModalLerObs = function(obsStrBase64) {
     let html = "";
     observacoes.forEach(obs => {
         html += `<div class="mb-3 p-3 bg-light border rounded text-start">
-                    <strong class="text-dark d-block mb-1">Batida: ${obs.tipo}</strong>
+                    <strong class="text-dark d-block mb-1">Batida/Ajuste: ${obs.tipo || 'Observação'}</strong>
                     <span class="text-secondary small">${obs.texto}</span>
                  </div>`;
     });
@@ -816,6 +816,17 @@ window.abrirModalEditarDia = function(diaBase64) {
     document.getElementById("ajusteAlmIda").value = (obj.almocoIda && obj.almocoIda !== "-") ? obj.almocoIda : "";
     document.getElementById("ajusteAlmVolta").value = (obj.almocoVolta && obj.almocoVolta !== "-") ? obj.almocoVolta : "";
     document.getElementById("ajusteSaida").value = (obj.saida && obj.saida !== "-") ? obj.saida : "";
+
+    // Preenche campo de Observação no modal se já houver texto salvo
+    const campoObs = document.getElementById("ajusteObservacaoTexto");
+    if (campoObs) {
+        let textoSalvo = "";
+        if (obj.observacoes && obj.observacoes.length > 0) {
+            textoSalvo = obj.observacoes.map(o => o.texto).join(" | ");
+        }
+        campoObs.value = textoSalvo;
+    }
+
     new bootstrap.Modal(document.getElementById('modalEditarDiaPonto')).show();
 };
 
@@ -831,6 +842,8 @@ async function salvarAjusteHorariosDia(event) {
     const hSaida = document.getElementById("ajusteSaida").value;
     const horaInicioAtestado = document.getElementById("horaInicioAtestado") ? document.getElementById("horaInicioAtestado").value : "";
     const horaFimAtestado = document.getElementById("horaFimAtestado") ? document.getElementById("horaFimAtestado").value : "";
+    const observacaoTexto = document.getElementById("ajusteObservacaoTexto") ? document.getElementById("ajusteObservacaoTexto").value.trim() : "";
+
     const btn = document.getElementById("btnSalvarAjusteDia");
     btn.disabled = true;
     btn.innerHTML = "⏳ Gravando Ajuste...";
@@ -868,11 +881,13 @@ async function salvarAjusteHorariosDia(event) {
                     .get();
                 if (!snapExistentes.empty) {
                     for (let doc of snapExistentes.docs) {
-                        await db.collection("historico_pontos").doc(doc.id).update({
+                        const payloadUpdate = {
                             statusDia: statusDiaEscolhido,
                             horaInicioAtestado: horaInicioAtestado,
                             horaFimAtestado: horaFimAtestado
-                        });
+                        };
+                        if (observacaoTexto !== "") payloadUpdate.observacao = observacaoTexto;
+                        await db.collection("historico_pontos").doc(doc.id).update(payloadUpdate);
                     }
                 } else {
                     await db.collection("historico_pontos").add({
@@ -884,6 +899,7 @@ async function salvarAjusteHorariosDia(event) {
                         statusDia: statusDiaEscolhido,
                         horaInicioAtestado: horaInicioAtestado,
                         horaFimAtestado: horaFimAtestado,
+                        observacao: observacaoTexto,
                         empresaEmail: PREFIXO_EMPRESA,
                         timestamp: firebase.firestore.FieldValue.serverTimestamp()
                     });
@@ -921,25 +937,26 @@ async function salvarAjusteHorariosDia(event) {
             const docId = mapaDocExistente[item.tipo];
             if ((item.hora && item.hora.trim() !== "") || (horaInicioAtestado !== "" || horaFimAtestado !== "")) {
                 salvouAlgumPonto = true;
+                const payloadDoc = {
+                    hora: item.hora.trim(),
+                    statusDia: statusDiaEscolhido,
+                    horaInicioAtestado: horaInicioAtestado,
+                    horaFimAtestado: horaFimAtestado
+                };
+                if (observacaoTexto !== "") {
+                    payloadDoc.observacao = observacaoTexto;
+                }
                 if (docId) {
-                    await db.collection("historico_pontos").doc(docId).update({
-                        hora: item.hora.trim(),
-                        statusDia: statusDiaEscolhido,
-                        horaInicioAtestado: horaInicioAtestado,
-                        horaFimAtestado: horaFimAtestado
-                    });
+                    await db.collection("historico_pontos").doc(docId).update(payloadDoc);
                 } else {
                     await db.collection("historico_pontos").add({
                         colaboradorId: String(colabId),
                         nome: nomeColab,
                         data: dataAlvoOriginal,
                         tipo: item.tipo,
-                        hora: item.hora.trim(),
-                        statusDia: statusDiaEscolhido,
-                        horaInicioAtestado: horaInicioAtestado,
-                        horaFimAtestado: horaFimAtestado,
                         empresaEmail: PREFIXO_EMPRESA,
-                        timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                        ...payloadDoc
                     });
                 }
             } else {
@@ -948,14 +965,16 @@ async function salvarAjusteHorariosDia(event) {
                 }
             }
         }
-        if (!salvouAlgumPonto && statusDiaEscolhido !== "NORMAL") {
+        if (!salvouAlgumPonto && (statusDiaEscolhido !== "NORMAL" || observacaoTexto !== "")) {
             const docGenerico = snapExistentes.docs[0];
+            const payloadGen = {
+                statusDia: statusDiaEscolhido,
+                horaInicioAtestado: horaInicioAtestado,
+                horaFimAtestado: horaFimAtestado,
+                observacao: observacaoTexto
+            };
             if (docGenerico) {
-                await db.collection("historico_pontos").doc(docGenerico.id).update({
-                    statusDia: statusDiaEscolhido,
-                    horaInicioAtestado: horaInicioAtestado,
-                    horaFimAtestado: horaFimAtestado
-                });
+                await db.collection("historico_pontos").doc(docGenerico.id).update(payloadGen);
             } else {
                 await db.collection("historico_pontos").add({
                     colaboradorId: String(colabId),
@@ -963,11 +982,9 @@ async function salvarAjusteHorariosDia(event) {
                     data: dataAlvoOriginal,
                     tipo: "Registro Especial",
                     hora: "-",
-                    statusDia: statusDiaEscolhido,
-                    horaInicioAtestado: horaInicioAtestado,
-                    horaFimAtestado: horaFimAtestado,
                     empresaEmail: PREFIXO_EMPRESA,
-                    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                    ...payloadGen
                 });
             }
         }
@@ -1200,7 +1217,11 @@ async function exportarPontosExcel() {
         somaEsperada += r.minutosEsperadosNum;
         let textoObsFinal = "Sem observação";
         if (r.observacoes && r.observacoes.length > 0) {
-            textoObsFinal = r.observacoes.map(o => `[${o.tipo}] ${o.texto}`).join(" | ");
+            // Concatena as observações registradas no dia
+            const observacoesTextos = r.observacoes.map(o => o.texto).filter(t => t && t.trim() !== "");
+            if (observacoesTextos.length > 0) {
+                textoObsFinal = observacoesTextos.join(" | ");
+            }
         } else if (r.statusDia === "FERIADO") {
             textoObsFinal = "Feriado Abonado";
         } else if (r.statusDia === "ATESTADO") {
@@ -1406,7 +1427,7 @@ async function exportarPontosExcel() {
         { s: { r: idxTrab, c: 6 }, e: { r: idxTrab, c: 8 } }, 
         { s: { r: idxSaldo, c: 0 }, e: { r: idxSaldo, c: 5 } }, 
         { s: { r: idxSaldo, c: 6 }, e: { r: idxSaldo, c: 8 } }, 
-        { s: { r: idxDeclaracao, c: 0 }, e: { r: idxDeclaracao, c: 8 } },
+        { s: { r: idxDeclaracao, c: 0 }, e: { r: idxDeclaracao, c: 8 } }, 
         { s: { r: idxLinhaAssinatura, c: 2 }, e: { r: idxLinhaAssinatura, c: 6 } }
     ];
 
