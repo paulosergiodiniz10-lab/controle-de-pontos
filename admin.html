@@ -346,13 +346,27 @@
 
                         <div class="ms-auto d-flex flex-wrap gap-2">
                             <button type="button" id="btnFiltrarTela" class="btn btn-outline-secondary btn-sm px-3" onclick="filtrarRelatorioTela()">🔍 Filtrar na Tela</button>
-                            <button type="button" class="btn btn-primary btn-sm px-3 fw-semibold" onclick="imprimirRelatorioGerencial()">📑 Relatório Gerencial (PDF)</button>
+                            <button type="button" class="btn btn-primary btn-sm px-3 fw-semibold" onclick="exportarExcelGerencial()">📑 Exportar Excel Gerencial</button>
                             <button type="button" class="btn btn-success btn-sm px-3 fw-semibold" onclick="exportarPontosExcel()">📊 Baixar Excel Colorido</button>
                         </div>
                     </div>
                 </div>
 
-                <div class="table-responsive">
+                <!-- SELETOR DE MODO DE VISUALIZAÇÃO NA TELA (OPÇÃO B) -->
+                <div class="d-flex align-items-center justify-content-between mb-3">
+                    <div class="btn-group" role="group">
+                        <button type="button" id="btnModoDetalhado" class="btn btn-sm btn-dark fw-bold px-3 active" onclick="alternarModoVisualizacao('detalhado')">
+                            📋 Espelho Detalhado (Batidas)
+                        </button>
+                        <button type="button" id="btnModoGerencial" class="btn btn-sm btn-outline-dark fw-bold px-3" onclick="alternarModoVisualizacao('gerencial')">
+                            📊 Resumo Gerencial (Banco de Horas)
+                        </button>
+                    </div>
+                    <span class="text-muted small fw-medium" id="legendaModoVisualizacao">Exibindo todas as batidas e apontamentos</span>
+                </div>
+
+                <!-- 1. TABELA DETALHADA COM BATIDAS (MODO ORIGINAL) -->
+                <div class="table-responsive" id="containerTabelaDetalhada">
                     <table class="table table-hover align-middle mb-0">
                         <thead class="table-dark">
                             <tr>
@@ -372,6 +386,25 @@
                         </tbody>
                     </table>
                 </div>
+
+                <!-- 2. TABELA GERENCIAL ENXUTA (MODO GERENCIAL IGUAL AO RELATÓRIO) -->
+                <div class="table-responsive" id="containerTabelaGerencial" style="display: none;">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead style="background-color: #0f172a; color: #ffffff;">
+                            <tr>
+                                <th>Data</th>
+                                <th>Colaborador</th>
+                                <th class="text-center">Horas Trab.</th>
+                                <th class="text-center">Horas Extras</th>
+                                <th class="text-center">Folga BH</th>
+                                <th class="text-center">Resultado</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabelaGerencialBody">
+                        </tbody>
+                    </table>
+                </div>
+
             </div>
         </div>
 
@@ -745,6 +778,35 @@
             } else {
                 boxHorarios.style.display = 'flex';
             }
+        }
+    }
+
+    // Função de alternância de visualização na tela (Opção B)
+    function alternarModoVisualizacao(modo) {
+        const btnDetalhado = document.getElementById('btnModoDetalhado');
+        const btnGerencial = document.getElementById('btnModoGerencial');
+        const boxDetalhado = document.getElementById('containerTabelaDetalhada');
+        const boxGerencial = document.getElementById('containerTabelaGerencial');
+        const legenda = document.getElementById('legendaModoVisualizacao');
+
+        if (modo === 'gerencial') {
+            btnDetalhado.classList.remove('active', 'btn-dark');
+            btnDetalhado.classList.add('btn-outline-dark');
+            btnGerencial.classList.add('active', 'btn-dark');
+            btnGerencial.classList.remove('btn-outline-dark');
+
+            boxDetalhado.style.display = 'none';
+            boxGerencial.style.display = 'block';
+            legenda.innerText = 'Exibindo Resumo Gerencial com apuração de Banco de Horas';
+        } else {
+            btnGerencial.classList.remove('active', 'btn-dark');
+            btnGerencial.classList.add('btn-outline-dark');
+            btnDetalhado.classList.add('active', 'btn-dark');
+            btnDetalhado.classList.remove('btn-outline-dark');
+
+            boxGerencial.style.display = 'none';
+            boxDetalhado.style.display = 'block';
+            legenda.innerText = 'Exibindo todas as batidas e apontamentos';
         }
     }
     </script>
