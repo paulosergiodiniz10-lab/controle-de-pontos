@@ -554,6 +554,7 @@ function consolidarLogsBrutos(logsArray) {
                 minutosTrabalhadosNum: 0,
                 minutosExtrasNum: 0,
                 minutosEsperadosNum: 0,
+                minutosFolgaBhNum: 0,
                 horasTrabalhadas: "00:00",
                 horasExtras: "00:00",
                 classeCorExtra: "text-muted",
@@ -636,14 +637,23 @@ function consolidarLogsBrutos(logsArray) {
                 cargaObrigatoriaDoDia = minCalc !== null ? minCalc : 480;
             }
             
+            // Folga padrão, Férias, Atestado e Feriado abonam o dia (cumprido)
             if (r.statusDia === "FERIADO" || r.statusDia === "FERIAS" || r.statusDia === "ATESTADO" || r.statusDia === "FOLGA") {
                 if (minutosTrabalhados < cargaObrigatoriaDoDia) {
                     minutosTrabalhados = cargaObrigatoriaDoDia;
                 }
             }
+
+            // Folga BH: Não soma como trabalhado no espelho diário e desconta do saldo
+            if (r.statusDia === "FOLGA_BH") {
+                r.minutosFolgaBhNum = cargaObrigatoriaDoDia;
+                minutosTrabalhados = 0;
+            }
             
             let diferencaDia = minutosTrabalhados - cargaObrigatoriaDoDia;
-            if (minutosTrabalhados > 0 && cargaObrigatoriaDoDia > 0) {
+            if (r.statusDia === "FOLGA_BH") {
+                diferencaDia = 0; // O desconto é apurado na linha específica de Folga BH
+            } else if (minutosTrabalhados > 0 && cargaObrigatoriaDoDia > 0) {
                 if (Math.abs(diferencaDia) <= 15) {
                     minutosTrabalhados = cargaObrigatoriaDoDia;
                     diferencaDia = 0;
@@ -707,17 +717,22 @@ function preencherCalendarioCompleto(dadosConsolidados, dataInicioStr, dataFimSt
                     reg._atestadoSomado = true;
                 }
             }
-            const saldo = (reg.minutosTrabalhadosNum || 0) - (reg.minutosEsperadosNum || 0);
-            reg.minutosExtrasNum = saldo;
-            if (saldo < 0) {
-                reg.horasExtras = `-${formatarMinutosParaString(Math.abs(saldo))}`;
-                reg.classeCorExtra = "text-danger";
-            } else if (saldo > 0) {
-                reg.horasExtras = formatarMinutosParaString(saldo);
-                reg.classeCorExtra = "text-success";
-            } else {
+            if (reg.statusDia === "FOLGA_BH") {
                 reg.horasExtras = "00:00";
                 reg.classeCorExtra = "text-secondary";
+            } else {
+                const saldo = (reg.minutosTrabalhadosNum || 0) - (reg.minutosEsperadosNum || 0);
+                reg.minutosExtrasNum = saldo;
+                if (saldo < 0) {
+                    reg.horasExtras = `-${formatarMinutosParaString(Math.abs(saldo))}`;
+                    reg.classeCorExtra = "text-danger";
+                } else if (saldo > 0) {
+                    reg.horasExtras = formatarMinutosParaString(saldo);
+                    reg.classeCorExtra = "text-success";
+                } else {
+                    reg.horasExtras = "00:00";
+                    reg.classeCorExtra = "text-secondary";
+                }
             }
             
             listaCompleta.push(reg);
@@ -752,14 +767,15 @@ function preencherCalendarioCompleto(dadosConsolidados, dataInicioStr, dataFimSt
                 minutosTrabalhadosNum: 0,
                 minutosEsperadosNum: cargaObrigatoria,
                 minutosExtrasNum: minExtras,
+                minutosFolgaBhNum: 0,
                 horasTrabalhadas: "00:00",
                 horasExtras: strExtras,
                 classeCorExtra: corExtras,
                 isDomingo: (diaDaSemana === 0),
-                statusDia: (mapaExistentes[dataFormatada] ? mapaExistentes[dataFormatada].statusDia : "NORMAL"),
-                observacoes: (mapaExistentes[dataFormatada] ? mapaExistentes[dataFormatada].observacoes : []),
-                horaInicioAtestado: mapaExistentes[dataFormatada] ? mapaExistentes[dataFormatada].horaInicioAtestado : "",
-                horaFimAtestado: mapaExistentes[dataFormatada] ? mapaExistentes[dataFormatada].horaFimAtestado : ""
+                statusDia: "NORMAL",
+                observacoes: [],
+                horaInicioAtestado: "",
+                horaFimAtestado: ""
             });
         }
         cur.setDate(cur.getDate() + 1);
@@ -786,7 +802,7 @@ window.alternarCamposPorStatus = function() {
     const status = document.getElementById("ajusteStatusDia").value;
     const containerPeriodo = document.getElementById("containerPeriodoStatus");
     const containerCamposHorarios = document.getElementById("containerCamposHorarios");
-    if (status === "FERIAS" || status === "ATESTADO" || status === "FOLGA") {
+    if (status === "FERIAS" || status === "ATESTADO" || status === "FOLGA" || status === "FOLGA_BH") {
         if (containerPeriodo) containerPeriodo.style.display = "block";
         if (containerCamposHorarios) containerCamposHorarios.style.display = "none";
     } else {
@@ -817,7 +833,6 @@ window.abrirModalEditarDia = function(diaBase64) {
     document.getElementById("ajusteAlmVolta").value = (obj.almocoVolta && obj.almocoVolta !== "-") ? obj.almocoVolta : "";
     document.getElementById("ajusteSaida").value = (obj.saida && obj.saida !== "-") ? obj.saida : "";
 
-    // Preenche campo de Observação no modal se já houver texto salvo
     const campoObs = document.getElementById("ajusteObservacaoTexto");
     if (campoObs) {
         let textoSalvo = "";
@@ -851,7 +866,7 @@ async function salvarAjusteHorariosDia(event) {
         const user = bancoUsuarios.find(u => String(u.id) === String(colabId));
         const nomeColab = user ? user.nome : "Colaborador";
 
-        if (statusDiaEscolhido === "FERIAS" || statusDiaEscolhido === "ATESTADO" || statusDiaEscolhido === "FOLGA") {
+        if (statusDiaEscolhido === "FERIAS" || statusDiaEscolhido === "ATESTADO" || statusDiaEscolhido === "FOLGA" || statusDiaEscolhido === "FOLGA_BH") {
             const dataInicioIso = document.getElementById("ajusteDataInicioPeriodo").value;
             const dataFimIso = document.getElementById("ajusteDataFimPeriodo").value;
             if (!dataInicioIso || !dataFimIso) {
@@ -1041,6 +1056,8 @@ async function filtrarRelatorioTela() {
     }
     let acumuladorTrabalhadas = 0;
     let acumuladorEsperadas = 0;
+    let acumuladorFolgaBh = 0;
+
     dadosConsolidados.sort((a,b) => {
         if(!a.data || !b.data) return 0;
         const pa = a.data.split('/');
@@ -1063,6 +1080,10 @@ async function filtrarRelatorioTela() {
   
         acumuladorTrabalhadas += r.minutosTrabalhadosNum;
         acumuladorEsperadas += r.minutosEsperadosNum;
+        if (r.minutosFolgaBhNum) {
+            acumuladorFolgaBh += r.minutosFolgaBhNum;
+        }
+
         let btnObsHtml = `<span class="badge bg-success bg-opacity-25 text-success border border-success-subtle px-2" style="font-size:0.75rem;">● Sem Obs.</span>`;
         if (r.observacoes && r.observacoes.length > 0) {
             const obsStrBase64 = btoa(unescape(encodeURIComponent(JSON.stringify(r.observacoes))));
@@ -1079,6 +1100,8 @@ async function filtrarRelatorioTela() {
             tagStatusHtml = ` <span class="badge bg-info text-dark border ms-1" style="font-size:0.65rem;">FÉRIAS</span>`;
         } else if (r.statusDia === "FOLGA") {
             tagStatusHtml = ` <span class="badge text-white border ms-1" style="font-size:0.65rem; background-color: #0d9488 !important;">FOLGA</span>`;
+        } else if (r.statusDia === "FOLGA_BH") {
+            tagStatusHtml = ` <span class="badge text-white border ms-1" style="font-size:0.65rem; background-color: #ea580c !important;">FOLGA BH</span>`;
         } else if (r.statusDia === "EDITADO") {
             tagStatusHtml = ` <span class="badge bg-danger text-white border ms-1" style="font-size:0.65rem;">EDITADO</span>`;
         } else if (r.isDomingo) {
@@ -1114,20 +1137,39 @@ async function filtrarRelatorioTela() {
     
     let htmlSaldo = "";
     if (saldoFinal > 0) {
-        htmlSaldo = `<span style="color: #16a34a; font-weight: 900; font-size: 1.1rem;">+ ${strSaldo} (Horas Extras Reais)</span>`;
+        htmlSaldo = `<span style="color: #16a34a; font-weight: 900; font-size: 1.05rem;">+ ${strSaldo} (Horas Extras Reais)</span>`;
     } else if (saldoFinal < 0) {
-        htmlSaldo = `<span style="color: #ef4444; font-weight: 900; font-size: 1.1rem;">- ${strSaldo} (Horas Faltantes)</span>`;
+        htmlSaldo = `<span style="color: #ef4444; font-weight: 900; font-size: 1.05rem;">- ${strSaldo} (Horas Faltantes)</span>`;
     } else {
-        htmlSaldo = `<span style="color: #64748b; font-weight: 900; font-size: 1.1rem;">00:00 (Zerado)</span>`;
+        htmlSaldo = `<span style="color: #64748b; font-weight: 900; font-size: 1.05rem;">00:00 (Zerado)</span>`;
     }
+
+    // Cálculo do Resultado Geral descontando as Folgas BH do saldo
+    const resultadoGeralMinutos = saldoFinal - acumuladorFolgaBh;
+    const resultadoGeralAbs = Math.abs(resultadoGeralMinutos);
+    const strResultadoGeral = formatarMinutosParaString(resultadoGeralAbs);
+
+    let htmlResultadoGeral = "";
+    if (resultadoGeralMinutos > 0) {
+        htmlResultadoGeral = `<span style="color: #16a34a; font-weight: 900; font-size: 1.15rem;">+ ${strResultadoGeral} (Saldo Positivo Restante)</span>`;
+    } else if (resultadoGeralMinutos < 0) {
+        htmlResultadoGeral = `<span style="color: #ef4444; font-weight: 900; font-size: 1.15rem;">- ${strResultadoGeral} (Saldo Devedor)</span>`;
+    } else {
+        htmlResultadoGeral = `<span style="color: #64748b; font-weight: 900; font-size: 1.15rem;">00:00 (Quitado)</span>`;
+    }
+
     const trTotal = document.createElement('tr');
     trTotal.style.backgroundColor = "#f8fafc";
     trTotal.innerHTML = `
         <td colspan="10" class="text-end pe-4 py-4 border-top">
-            <div style="font-size: 0.95rem; line-height: 1.8;">
+            <div style="font-size: 0.95rem; line-height: 1.9;">
                 <span class="text-secondary fw-bold text-uppercase me-2">Carga Esperada do Período:</span> <span class="fw-bold text-dark fs-6">${formatarMinutosParaString(acumuladorEsperadas)}</span><br>
                 <span class="text-secondary fw-bold text-uppercase me-2">Total Realizado:</span> <span class="fw-bold text-dark fs-6">${formatarMinutosParaString(acumuladorTrabalhadas)}</span><br>
-                <span class="text-dark fw-extrabold text-uppercase me-2" style="font-size: 1.1rem;">Saldo Final:</span> ${htmlSaldo}
+                <span class="text-secondary fw-bold text-uppercase me-2">Saldo Final:</span> ${htmlSaldo}<br>
+                <span class="text-danger fw-bold text-uppercase me-2">Folga BH:</span> <span class="fw-bold text-danger fs-6">- ${formatarMinutosParaString(acumuladorFolgaBh)} (Descontado do Banco)</span><br>
+                <div class="mt-2 pt-2 border-top">
+                    <span class="text-dark fw-extrabold text-uppercase me-2" style="font-size: 1.15rem;">Resultado Geral:</span> ${htmlResultadoGeral}
+                </div>
             </div>
         </td>
     `;
@@ -1212,12 +1254,17 @@ async function exportarPontosExcel() {
     ];
     let somaTrab = 0;
     let somaEsperada = 0;
+    let somaFolgaBh = 0;
+
     dadosParaPlanilha.forEach(r => {
         somaTrab += r.minutosTrabalhadosNum;
         somaEsperada += r.minutosEsperadosNum;
+        if (r.minutosFolgaBhNum) {
+            somaFolgaBh += r.minutosFolgaBhNum;
+        }
+
         let textoObsFinal = "Sem observação";
         if (r.observacoes && r.observacoes.length > 0) {
-            // Concatena as observações registradas no dia
             const observacoesTextos = r.observacoes.map(o => o.texto).filter(t => t && t.trim() !== "");
             if (observacoesTextos.length > 0) {
                 textoObsFinal = observacoesTextos.join(" | ");
@@ -1230,13 +1277,15 @@ async function exportarPontosExcel() {
             textoObsFinal = "Férias Abonadas";
         } else if (r.statusDia === "FOLGA") {
             textoObsFinal = "Folga Abonada / Compensatória";
+        } else if (r.statusDia === "FOLGA_BH") {
+            textoObsFinal = "Folga BH [Banco de Horas]";
         } else if (r.isDomingo) {
             textoObsFinal = "Descanso Semanal (DSR / Domingo)";
         }
         
         let tagExcel = "";
         if (r.statusDia && r.statusDia !== "NORMAL" && r.statusDia !== "EDITADO") {
-            tagExcel = ` (${r.statusDia})`;
+            tagExcel = ` (${r.statusDia === "FOLGA_BH" ? "FOLGA BH" : r.statusDia})`;
         } else if (r.isDomingo) {
             tagExcel = " (DOM)";
         }
@@ -1251,6 +1300,16 @@ async function exportarPontosExcel() {
     if (saldoFinal > 0) textoSaldo = `+ ${strSaldo} (Horas Extras Reais)`;
     else if (saldoFinal < 0) textoSaldo = `- ${strSaldo} (Horas Faltantes)`;
     else textoSaldo = "00:00 (Zerado)";
+
+    const resultadoGeralPlanilha = saldoFinal - somaFolgaBh;
+    const resultadoGeralAbs = Math.abs(resultadoGeralPlanilha);
+    const strResultadoGeral = formatarMinutosParaString(resultadoGeralAbs);
+
+    let textoResultadoGeral = "";
+    if (resultadoGeralPlanilha > 0) textoResultadoGeral = `+ ${strResultadoGeral} (Saldo Positivo Restante)`;
+    else if (resultadoGeralPlanilha < 0) textoResultadoGeral = `- ${strResultadoGeral} (Saldo Devedor)`;
+    else textoResultadoGeral = "00:00 (Quitado)";
+
     matrizPlanilha.push([]);
     
     const idxTitle = matrizPlanilha.length;
@@ -1264,6 +1323,13 @@ async function exportarPontosExcel() {
     
     const idxSaldo = matrizPlanilha.length;
     matrizPlanilha.push(["SALDO FINAL:", "", "", "", "", "", textoSaldo, "", ""]);
+
+    const idxFolgaBh = matrizPlanilha.length;
+    matrizPlanilha.push(["FOLGA BH:", "", "", "", "", "", `- ${formatarMinutosParaString(somaFolgaBh)} (Descontado)`, "", ""]);
+
+    const idxResultadoGeral = matrizPlanilha.length;
+    matrizPlanilha.push(["RESULTADO GERAL:", "", "", "", "", "", textoResultadoGeral, "", ""]);
+
     matrizPlanilha.push([]);
     matrizPlanilha.push([]);
     
@@ -1371,7 +1437,7 @@ async function exportarPontosExcel() {
                     alignment: { horizontal: "center", vertical: "center" },
                     border: bordaSuave
                 };
-            } else if (R >= idxCarga && R <= idxSaldo) {
+            } else if (R >= idxCarga && R <= idxResultadoGeral) {
                 if (C <= 5) {
                     cell.s = {
                         fill: { fgColor: { rgb: "F8FAFC" } },
@@ -1383,10 +1449,14 @@ async function exportarPontosExcel() {
                     let corTexto = "0F172A";
                     if (R === idxSaldo) {
                         corTexto = saldoFinal > 0 ? "059669" : (saldoFinal < 0 ? "DC2626" : "0F172A");
+                    } else if (R === idxFolgaBh) {
+                        corTexto = "EA580C";
+                    } else if (R === idxResultadoGeral) {
+                        corTexto = resultadoGeralPlanilha > 0 ? "059669" : (resultadoGeralPlanilha < 0 ? "DC2626" : "0F172A");
                     }
                     cell.s = {
                         fill: { fgColor: { rgb: "FFFFFF" } },
-                        font: { bold: true, color: { rgb: corTexto }, size: 10.5 },
+                        font: { bold: true, color: { rgb: corTexto }, size: R === idxResultadoGeral ? 11 : 10 },
                         alignment: { horizontal: "center", vertical: "center" },
                         border: bordaSuave
                     };
@@ -1427,6 +1497,10 @@ async function exportarPontosExcel() {
         { s: { r: idxTrab, c: 6 }, e: { r: idxTrab, c: 8 } }, 
         { s: { r: idxSaldo, c: 0 }, e: { r: idxSaldo, c: 5 } }, 
         { s: { r: idxSaldo, c: 6 }, e: { r: idxSaldo, c: 8 } }, 
+        { s: { r: idxFolgaBh, c: 0 }, e: { r: idxFolgaBh, c: 5 } }, 
+        { s: { r: idxFolgaBh, c: 6 }, e: { r: idxFolgaBh, c: 8 } }, 
+        { s: { r: idxResultadoGeral, c: 0 }, e: { r: idxResultadoGeral, c: 5 } }, 
+        { s: { r: idxResultadoGeral, c: 6 }, e: { r: idxResultadoGeral, c: 8 } }, 
         { s: { r: idxDeclaracao, c: 0 }, e: { r: idxDeclaracao, c: 8 } }, 
         { s: { r: idxLinhaAssinatura, c: 2 }, e: { r: idxLinhaAssinatura, c: 6 } }
     ];
