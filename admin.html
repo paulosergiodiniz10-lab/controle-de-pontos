@@ -591,7 +591,7 @@
       </div>
     </div>
 
-    <!-- MODAL EDITAR HORÁRIOS E STATUS DO DIA (COM OPÇÃO DE FOLGA, FOLGA BH, FÉRIAS E ATESTADO POR PERÍODO) -->
+    <!-- MODAL EDITAR HORÁRIOS E STATUS DO DIA -->
     <div class="modal fade" id="modalEditarDiaPonto" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content border-0 shadow-lg" style="border-radius:16px;">
@@ -616,33 +616,34 @@
                           <option value="ATESTADO">Atestado Médico (Dia Integral)</option>
                           <option value="ATESTADO_PARCIAL">Atestado Parcial (Horas)</option>
                           <option value="FERIAS">Férias</option>
-                          <option value="FOLGA">Folga</option>
-                          <option value="FOLGA_BH">Folga BH [Banco de Horas]</option>
+                          <option value="FOLGA">Folga (Abonada)</option>
+                          <option value="FOLGA_BH">Folga BH (Dia Integral)</option>
+                          <option value="FOLGA_BH_PARCIAL">Folga BH Parcial (Horas)</option>
                       </select>
                   </div>
 
                   <!-- CAMPO DE OBSERVAÇÃO / JUSTIFICATIVA PARA QUALQUER STATUS -->
                   <div class="mb-3 text-start">
                       <label class="form-label small fw-bold text-dark">Observação / Justificativa</label>
-                      <textarea id="ajusteObservacaoTexto" class="form-control form-control-sm" rows="2" placeholder="Ex: Atestado entregue, compensação de banco de horas, ajuste manual..."></textarea>
+                      <textarea id="ajusteObservacaoTexto" class="form-control form-control-sm" rows="2" placeholder="Ex: Atestado entregue, compensação de banco de horas, saída antecipada..."></textarea>
                   </div>
 
-                  <!-- CAMPOS PARA ATESTADO PARCIAL (HORÁRIOS DO ATESTADO) -->
-                  <div id="containerAtestadoParcial" class="p-3 bg-light border border-primary-subtle rounded mb-3" style="display: none;">
-                      <span class="text-primary small fw-bold d-block mb-2">⏱️ Período do Atestado Parcial:</span>
+                  <!-- CAMPOS PARA HORAS PARCIAIS (ATESTADO PARCIAL OU FOLGA BH PARCIAL) -->
+                  <div id="containerHorariosParciais" class="p-3 bg-light border border-primary-subtle rounded mb-3" style="display: none;">
+                      <span id="tituloHorariosParciais" class="text-primary small fw-bold d-block mb-2">⏱️ Período de Horas Utilizadas:</span>
                       <div class="row g-2">
                           <div class="col-6">
-                              <label for="horaInicioAtestado" class="form-label small fw-medium text-muted">Hora Início</label>
-                              <input type="time" id="horaInicioAtestado" class="form-control">
+                              <label for="horaInicioParcial" class="form-label small fw-medium text-muted">Hora Início</label>
+                              <input type="time" id="horaInicioParcial" class="form-control">
                           </div>
                           <div class="col-6">
-                              <label for="horaFimAtestado" class="form-label small fw-medium text-muted">Hora Fim</label>
-                              <input type="time" id="horaFimAtestado" class="form-control">
+                              <label for="horaFimParcial" class="form-label small fw-medium text-muted">Hora Fim</label>
+                              <input type="time" id="horaFimParcial" class="form-control">
                           </div>
                       </div>
                   </div>
 
-                  <!-- SELETOR DE PERÍODO (EXIBIDO AUTOMATICAMENTE PARA FOLGA, FOLGA BH, FÉRIAS OU ATESTADO) -->
+                  <!-- SELETOR DE PERÍODO (EXIBIDO PARA FÉRIAS, FOLGA INTEGRAL, FOLGA BH INTEGRAL OU ATESTADO INTEGRAL) -->
                   <div id="containerPeriodoStatus" class="p-3 bg-light border border-primary-subtle rounded mb-3" style="display: none;">
                       <span class="text-primary small fw-bold d-block mb-2">📅 Selecione o Período Completo:</span>
                       <div class="row g-2">
@@ -700,7 +701,8 @@
     <script>
     function alternarCamposPorStatus() {
         const statusEl = document.getElementById('ajusteStatusDia');
-        const boxParcial = document.getElementById('containerAtestadoParcial');
+        const boxParcial = document.getElementById('containerHorariosParciais');
+        const tituloParcial = document.getElementById('tituloHorariosParciais');
         const boxPeriodo = document.getElementById('containerPeriodoStatus');
         const boxHorarios = document.getElementById('containerCamposHorarios');
 
@@ -708,20 +710,25 @@
 
         const status = statusEl.value;
 
-        // Controle do Atestado Parcial
+        // Controle dos Campos Parciais (Atestado Parcial ou Folga BH Parcial)
         if (boxParcial) {
-            if (status === 'ATESTADO_PARCIAL') {
+            if (status === 'ATESTADO_PARCIAL' || status === 'FOLGA_BH_PARCIAL') {
                 boxParcial.style.display = 'block';
+                if (tituloParcial) {
+                    tituloParcial.innerText = status === 'ATESTADO_PARCIAL' 
+                        ? '⏱️ Período do Atestado Parcial:' 
+                        : '⏱️ Horas Utilizadas do Banco de Horas (BH):';
+                }
             } else {
                 boxParcial.style.display = 'none';
-                const hInicio = document.getElementById('horaInicioAtestado');
-                const hFim = document.getElementById('horaFimAtestado');
+                const hInicio = document.getElementById('horaInicioParcial');
+                const hFim = document.getElementById('horaFimParcial');
                 if (hInicio) hInicio.value = '';
                 if (hFim) hFim.value = '';
             }
         }
 
-        // Controle do Período (Férias, Folga, Folga BH, Atestado Integral)
+        // Controle do Período Completo (Férias, Folga, Folga BH Integral, Atestado Integral)
         if (boxPeriodo) {
             if (['FERIAS', 'FOLGA', 'FOLGA_BH', 'ATESTADO'].includes(status)) {
                 boxPeriodo.style.display = 'block';
@@ -730,7 +737,7 @@
             }
         }
 
-        // Controle dos Campos de Horários Tradicionais
+        // Controle dos Campos de Batida Padrão (Entrada / Saída)
         if (boxHorarios) {
             if (['FERIAS', 'FOLGA', 'FOLGA_BH', 'ATESTADO'].includes(status)) {
                 boxHorarios.style.display = 'none';
