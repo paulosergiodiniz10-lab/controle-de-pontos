@@ -56,7 +56,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
         const nomeEmpresaSalvo = sessionStorage.getItem("nome_empresa_ativa");
         document.getElementById("sidebarNomeEmpresa").innerText = nomeEmpresaSalvo ? nomeEmpresaSalvo : (dadosEmpresaAtiva.nome || "Empresa Parceira");
-        
+
         await carregarConfigsNuvem();
         await carregarUsuariosDaNuvem();
     } catch (e) {
@@ -201,7 +201,7 @@ function otimizarEConverterFoto(fileInputElement) {
 async function carregarUsuariosDaNuvem() {
     const tabela = document.getElementById('tabelaEquipe');
     if(tabela) tabela.innerHTML = `<tr><td colspan="14" class="text-center text-muted small py-3">⏳ Carregando dados da Nuvem...</td></tr>`;
-    
+
     try {
         const snapshot = await db.collection("usuarios_ponto").where("empresaEmail", "==", PREFIXO_EMPRESA).get();
         bancoUsuarios = [];
@@ -225,7 +225,7 @@ async function cadastrarUsuario(event) {
         if(!foto) {
             foto = `https://ui-avatars.com/api/?name=${encodeURIComponent(document.getElementById('cadNome').value)}&background=f97316&color=fff`;
         }
-        
+
         const novoUser = {
             id: String(new Date().getTime()), 
             empresaEmail: PREFIXO_EMPRESA, 
@@ -251,10 +251,10 @@ async function cadastrarUsuario(event) {
         try {
             const docRef = await db.collection("usuarios_ponto").add(novoUser);
             bancoUsuarios.push({ firebaseId: docRef.id, ...novoUser });
-            
+
             renderTabelaComAtualizacao();
             sincronizarFiltrosColaboradores();
-            
+
             document.getElementById('formUsuario').reset();
             document.getElementById('cadCargaSegSex').value = "08:00";
             document.getElementById('cadCargaSab').value = "04:00";
@@ -273,7 +273,7 @@ function renderTabelaComAtualizacao() {
     const tabela = document.getElementById('tabelaEquipe');
     if(!tabela) return;
     tabela.innerHTML = "";
-    
+
     if(bancoUsuarios.length === 0) {
         tabela.innerHTML = `<tr><td colspan="14" class="text-center text-muted small py-3">Nenhum funcionário cadastrado.</td></tr>`;
         return;
@@ -281,7 +281,7 @@ function renderTabelaComAtualizacao() {
     bancoUsuarios.forEach((u, index) => {
         const badgeStatus = u.status === "ATIVO" ? 'bg-success-subtle text-success border border-success-subtle' : 'bg-danger-subtle text-danger border border-danger-subtle';
         const tr = document.createElement('tr');
-        
+
         tr.innerHTML = `
             <td><img src="${u.foto}" class="avatar-table" onerror="this.src='https://ui-avatars.com/api/?name=User&background=cbd5e1'"></td>
             <td class="fw-medium">${u.nome}</td>
@@ -310,7 +310,7 @@ function abrirModalEditarFicha(index) {
     const idx = parseInt(index, 10);
     const u = bancoUsuarios[idx];
     if(!u) return;
-    
+
     usuarioSelecionadoId = idx;
     document.getElementById('editNome').value = u.nome;
     document.getElementById('editCpf').value = u.cpf;
@@ -362,11 +362,11 @@ async function confirmarEdicaoFicha() {
         try {
             await db.collection("usuarios_ponto").doc(u.firebaseId).update(dadosAtualizados);
             Object.assign(u, dadosAtualizados);
-            
+
             bootstrap.Modal.getInstance(document.getElementById('modalEditarFicha')).hide();
             renderTabelaComAtualizacao();
             sincronizarFiltrosColaboradores();
-            
+
             setTimeout(() => {
                 exibirAlertaTop("☁️ Atualizado", "A ficha do colaborador foi alterada na nuvem.");
             }, 300);
@@ -390,7 +390,7 @@ function solicitarExclusaoUsuario(index) {
 
 async function executarExclusaoDefinitiva() {
     if (usuarioSelecionadoId === null) return;
-    
+
     const u = bancoUsuarios[usuarioSelecionadoId];
     const btnConf = document.getElementById("btnConfirmarExclusao");
     btnConf.disabled = true;
@@ -398,11 +398,11 @@ async function executarExclusaoDefinitiva() {
     try {
         await db.collection("usuarios_ponto").doc(u.firebaseId).delete();
         bancoUsuarios.splice(usuarioSelecionadoId, 1);
-        
+
         bootstrap.Modal.getInstance(document.getElementById('modalExclusao')).hide();
         renderTabelaComAtualizacao();
         sincronizarFiltrosColaboradores();
-        
+
         setTimeout(() => {
             exibirAlertaTop("🗑️ Removido", "O colaborador foi excluído permanentemente da nuvem.");
         }, 300);
@@ -476,7 +476,7 @@ function converterDataIsoParaBr(dataIso) {
 function aplicarFiltroRapido(tipo) {
     const inputInicio = document.getElementById('filtroRelatorioInicio');
     const inputFim = document.getElementById('filtroRelatorioFim');
-    
+
     const hoje = new Date();
     let inicio = new Date();
     let fim = new Date();
@@ -501,7 +501,7 @@ function aplicarFiltroRapido(tipo) {
         const partes = mesVal.split('-');
         const anoSelecionado = parseInt(partes[0], 10);
         const mesSelecionado = parseInt(partes[1], 10);
-        
+
         inicio = new Date(anoSelecionado, mesSelecionado - 1, 1);
         fim = new Date(anoSelecionado, mesSelecionado, 0); 
     }
@@ -518,7 +518,7 @@ async function puxarLogsEFiltrar() {
     try {
         const queryRef = db.collection("historico_pontos").where("empresaEmail", "==", PREFIXO_EMPRESA);
         const snapshot = await queryRef.get();
-        
+
         snapshot.forEach(doc => {
             const data = doc.data();
             if (!data.data) return; 
@@ -526,7 +526,7 @@ async function puxarLogsEFiltrar() {
                 dadosBrutosNuvem.push(data);
             }
         });
-        
+
     } catch (error) {
         console.error("Erro no Firebase:", error);
         exibirAlertaTop("⚠️ Erro", "Falha ao consultar a base de dados.");
@@ -540,7 +540,7 @@ function consolidarLogsBrutos(logsArray) {
     const espelhosAgrupados = {};
     logsArray.forEach(log => {
         if(!log.data || !log.colaboradorId) return; 
-        
+
         const chaveChave = `${log.data}_${log.colaboradorId}`;
         if (!espelhosAgrupados[chaveChave]) {
             espelhosAgrupados[chaveChave] = {
@@ -594,7 +594,7 @@ function consolidarLogsBrutos(logsArray) {
         const mAlmIda = bolarTempoParaMinutos(r.almocoIda);
         const mAlmVolta = bolarTempoParaMinutos(r.almocoVolta);
         const mSaida = bolarTempoParaMinutos(r.saida);
-        
+
         let calcAlmIda = mAlmIda;
         let calcSaida = mSaida;
         const hojeStr = new Date().toLocaleDateString('pt-BR');
@@ -640,7 +640,7 @@ function consolidarLogsBrutos(logsArray) {
                 const minCalc = bolarTempoParaMinutos(cargaSegSex);
                 cargaObrigatoriaDoDia = minCalc !== null ? minCalc : 480;
             }
-            
+
             // Folga padrão, Férias, Atestado e Feriado abonam o dia (cumprido)
             if (r.statusDia === "FERIADO" || r.statusDia === "FERIAS" || r.statusDia === "ATESTADO" || r.statusDia === "FOLGA") {
                 if (minutosTrabalhados < cargaObrigatoriaDoDia) {
@@ -661,7 +661,7 @@ function consolidarLogsBrutos(logsArray) {
                 const minBhParcial = Math.max(0, minFimBh - minIniBh);
                 r.minutosFolgaBhNum = minBhParcial;
             }
-            
+
             let diferencaDia = minutosTrabalhados - cargaObrigatoriaDoDia;
             if (r.statusDia === "FOLGA_BH") {
                 diferencaDia = 0; // O desconto é apurado na linha específica de Folga BH
@@ -713,15 +713,15 @@ function preencherCalendarioCompleto(dadosConsolidados, dataInicioStr, dataFimSt
         const diaDaSemana = cur.getDay();
         if (mapaExistentes[dataFormatada]) {
             const reg = mapaExistentes[dataFormatada];
-            
+
             const inicioAtestado = reg.horaInicioAtestado || "";
             const fimAtestado = reg.horaFimAtestado || "";
-            
+
             if (inicioAtestado && fimAtestado) {
                 const minInicio = bolarTempoParaMinutos(inicioAtestado) || 0;
                 const minFim = bolarTempoParaMinutos(fimAtestado) || 0;
                 const minAtestado = Math.max(0, minFim - minInicio);
-                
+
                 if (minAtestado > 0 && !reg._atestadoSomado) {
                     const minPonto = reg.minutosTrabalhadosNum || 0;
                     reg.minutosTrabalhadosNum = minPonto + minAtestado;
@@ -746,7 +746,7 @@ function preencherCalendarioCompleto(dadosConsolidados, dataInicioStr, dataFimSt
                     reg.classeCorExtra = "text-secondary";
                 }
             }
-            
+
             listaCompleta.push(reg);
         } else {
             let cargaObrigatoria = 0;
@@ -800,7 +800,7 @@ function preencherCalendarioCompleto(dadosConsolidados, dataInicioStr, dataFimSt
 window.abrirModalLerObs = function(obsStrBase64) {
     const stringDecodificada = decodeURIComponent(escape(atob(obsStrBase64)));
     const observacoes = JSON.parse(stringDecodificada);
-    
+
     let html = "";
     observacoes.forEach(obs => {
         html += `<div class="mb-3 p-3 bg-light border rounded text-start">
@@ -858,7 +858,7 @@ window.alternarCamposPorStatus = function() {
 
 window.abrirModalEditarDia = function(diaBase64) {
     const obj = JSON.parse(decodeURIComponent(escape(atob(diaBase64))));
-    
+
     document.getElementById("modalAjusteNome").innerText = obj.nome;
     document.getElementById("modalAjusteData").innerText = obj.data;
     document.getElementById("modalAjusteDataVal").value = obj.data;
@@ -908,7 +908,7 @@ async function salvarAjusteHorariosDia(event) {
     const dataAlvoOriginal = document.getElementById("modalAjusteDataVal").value;
     const colabId = document.getElementById("modalAjusteColabIdVal").value;
     let statusDiaEscolhido = document.getElementById("ajusteStatusDia").value;
-    
+
     const hEntrada = document.getElementById("ajusteEntrada").value;
     const hAlmIda = document.getElementById("ajusteAlmIda").value;
     const hAlmVolta = document.getElementById("ajusteAlmVolta").value;
@@ -1100,11 +1100,16 @@ async function filtrarRelatorioTela() {
     const filtroInicio = document.getElementById('filtroRelatorioInicio').value;
     const filtroFim = document.getElementById('filtroRelatorioFim').value;
     const tabelaBody = document.getElementById('tabelaRelatoriosBody');
+    const tabelaGerencialBody = document.getElementById('tabelaGerencialBody');
     if(!tabelaBody) return;
-    
+
     tabelaBody.innerHTML = "";
+    if (tabelaGerencialBody) tabelaGerencialBody.innerHTML = "";
+
     if (filtroColab === "todos") {
-        tabelaBody.innerHTML = `<tr><td colspan="10" class="text-center text-muted small py-4">⚠️ Por favor, selecione um colaborador específico para carregar o relatório.</td></tr>`;
+        const msgVazia = `<tr><td colspan="10" class="text-center text-muted small py-4">⚠️ Por favor, selecione um colaborador específico para carregar o relatório.</td></tr>`;
+        tabelaBody.innerHTML = msgVazia;
+        if (tabelaGerencialBody) tabelaGerencialBody.innerHTML = `<tr><td colspan="6" class="text-center text-muted small py-4">⚠️ Por favor, selecione um colaborador específico para carregar o relatório.</td></tr>`;
         return;
     }
     let dadosConsolidados = await puxarLogsEFiltrar();
@@ -1132,6 +1137,7 @@ async function filtrarRelatorioTela() {
     }
     if (dadosConsolidados.length === 0) {
         tabelaBody.innerHTML = `<tr><td colspan="10" class="text-center text-muted small py-4">Nenhum registro encontrado para este colaborador no período selecionado.</td></tr>`;
+        if (tabelaGerencialBody) tabelaGerencialBody.innerHTML = `<tr><td colspan="6" class="text-center text-muted small py-4">Nenhum registro encontrado para este colaborador no período selecionado.</td></tr>`;
         return;
     }
     let acumuladorTrabalhadas = 0;
@@ -1157,7 +1163,7 @@ async function filtrarRelatorioTela() {
                 r._atestadoSomado = true;
             }
         }
-  
+
         acumuladorTrabalhadas += r.minutosTrabalhadosNum;
         acumuladorEsperadas += r.minutosEsperadosNum;
         if (r.minutosFolgaBhNum) {
@@ -1194,7 +1200,7 @@ async function filtrarRelatorioTela() {
         if (r.isDomingo || (r.statusDia && r.statusDia !== "NORMAL")) {
             tr.setAttribute('style', 'background-color: #f8fafc;');
         }
-        
+
         const ehAtestadoParcial = (r.statusDia === "ATESTADO PARCIAL" || r.statusDia === "Atestado Parcial (Horas)" || (r.horaInicioAtestado && r.horaFimAtestado));
         tr.innerHTML = `
             <td><strong>${r.data}</strong>${tagStatusHtml}</td>
@@ -1211,12 +1217,49 @@ async function filtrarRelatorioTela() {
             </td>
         `;
         tabelaBody.appendChild(tr);
+
+        // Preenchimento da Tabela Gerencial (Visualização Opção B na Tela)
+        if (tabelaGerencialBody) {
+            const minFolgaBhDia = (r.minutosFolgaBhNum || 0);
+            let strFolgaBhDia = "-";
+            if (minFolgaBhDia > 0) {
+                strFolgaBhDia = formatarMinutosParaString(minFolgaBhDia);
+                if (r.statusDia === "FOLGA_BH_PARCIAL" && r.horaInicioBh && r.horaFimBh) {
+                    strFolgaBhDia += ` (${r.horaInicioBh}-${r.horaFimBh})`;
+                }
+            }
+
+            const saldoDiaMin = (r.minutosExtrasNum || 0) - minFolgaBhDia;
+            let strResultadoDia = "00:00";
+            let corResultadoDia = "text-secondary";
+            if (saldoDiaMin > 0) {
+                strResultadoDia = `+${formatarMinutosParaString(saldoDiaMin)}`;
+                corResultadoDia = "text-success";
+            } else if (saldoDiaMin < 0) {
+                strResultadoDia = `-${formatarMinutosParaString(Math.abs(saldoDiaMin))}`;
+                corResultadoDia = "text-danger";
+            }
+
+            const trG = document.createElement('tr');
+            if (r.isDomingo || (r.statusDia && r.statusDia !== "NORMAL")) {
+                trG.setAttribute('style', 'background-color: #f8fafc;');
+            }
+            trG.innerHTML = `
+                <td><strong>${r.data}</strong>${tagStatusHtml}</td>
+                <td>${r.nome}</td>
+                <td class="text-center fw-bold text-dark">${r.horasTrabalhadas || '00:00'}</td>
+                <td class="text-center fw-bold ${r.classeCorExtra || ''}">${r.horasExtras || '00:00'}</td>
+                <td class="text-center fw-bold text-danger">${strFolgaBhDia}</td>
+                <td class="text-center fw-bold ${corResultadoDia}">${strResultadoDia}</td>
+            `;
+            tabelaGerencialBody.appendChild(trG);
+        }
     });
 
     const saldoFinal = acumuladorTrabalhadas - acumuladorEsperadas;
     const saldoAbsoluto = Math.abs(saldoFinal);
     const strSaldo = formatarMinutosParaString(saldoAbsoluto);
-    
+
     let htmlSaldo = "";
     if (saldoFinal > 0) {
         htmlSaldo = `<span style="color: #16a34a; font-weight: 900; font-size: 1.05rem;">+ ${strSaldo} (Horas Extras Reais)</span>`;
@@ -1256,20 +1299,48 @@ async function filtrarRelatorioTela() {
         </td>
     `;
     tabelaBody.appendChild(trTotal);
+
+    // Rodapé de fechamento da Tabela Gerencial na Tela
+    if (tabelaGerencialBody) {
+        const user = bancoUsuarios.find(u => String(u.id) === String(filtroColab)) || {};
+        const colabNome = user.nome || dadosConsolidados[0].nome;
+        const colabCpf = user.cpf || "-";
+
+        const trTotalGerencial = document.createElement('tr');
+        trTotalGerencial.style.backgroundColor = "#f8fafc";
+        trTotalGerencial.innerHTML = `
+            <td colspan="6" class="p-4 border-top">
+                <div class="d-flex flex-column align-items-end" style="font-size: 0.95rem; line-height: 1.9;">
+                    <div><span class="text-secondary fw-bold text-uppercase me-2">Carga Esperada do Período:</span> <span class="fw-bold text-dark">${formatarMinutosParaString(acumuladorEsperadas)}</span></div>
+                    <div><span class="text-secondary fw-bold text-uppercase me-2">Total Realizado:</span> <span class="fw-bold text-dark">${formatarMinutosParaString(acumuladorTrabalhadas)}</span></div>
+                    <div><span class="text-secondary fw-bold text-uppercase me-2">Saldo Final:</span> ${htmlSaldo}</div>
+                    <div><span class="text-danger fw-bold text-uppercase me-2">Folga BH:</span> <span class="fw-bold text-danger">- ${formatarMinutosParaString(acumuladorFolgaBh)} (Descontado)</span></div>
+                    <div class="mt-2 pt-2 border-top w-100 text-end">
+                        <span class="text-dark fw-extrabold text-uppercase me-2" style="font-size: 1.1rem;">Resultado Geral:</span> ${htmlResultadoGeral}
+                    </div>
+                </div>
+                <div class="text-center mt-5 pt-3">
+                    <div style="width: 320px; margin: 0 auto; border-top: 1.5px solid #0f172a; padding-top: 6px; font-weight: bold; color: #0f172a;">${colabNome}</div>
+                    <small class="text-muted">CPF: ${colabCpf} | Assinatura do Colaborador</small>
+                </div>
+            </td>
+        `;
+        tabelaGerencialBody.appendChild(trTotalGerencial);
+    }
 }
 
 async function exportarPontosExcel() {
     const filtroColab = document.getElementById('filtroRelatorioColaborador').value;
-    
+
     if (filtroColab === "todos") {
         exibirAlertaTop("Selecione um Colaborador", "Por favor, defina qual colaborador deseja exportar para gerar o arquivo formatado.");
         return;
     }
     let dadosParaPlanilha = await puxarLogsEFiltrar();
-    
+
     const filtroInicio = document.getElementById('filtroRelatorioInicio').value;
     const filtroFim = document.getElementById('filtroRelatorioFim').value;
-    
+
     if (filtroInicio && filtroFim) {
         dadosParaPlanilha = preencherCalendarioCompleto(dadosParaPlanilha, filtroInicio, filtroFim, filtroColab);
     } else {
@@ -1292,7 +1363,7 @@ async function exportarPontosExcel() {
             });
         }
     }
-    
+
     if (dadosParaPlanilha.length === 0) {
         exibirAlertaTop("Sem Dados", "Não há dados consolidados para o colaborador filtrado.");
         return;
@@ -1366,7 +1437,7 @@ async function exportarPontosExcel() {
         } else if (r.isDomingo) {
             textoObsFinal = "Descanso Semanal (DSR / Domingo)";
         }
-        
+
         let tagExcel = "";
         if (r.statusDia === "FOLGA_BH") {
             tagExcel = " (FOLGA BH)";
@@ -1383,7 +1454,7 @@ async function exportarPontosExcel() {
     const saldoFinal = somaTrab - somaEsperada;
     const saldoAbs = Math.abs(saldoFinal);
     const strSaldo = formatarMinutosParaString(saldoAbs);
-    
+
     let textoSaldo = "";
     if (saldoFinal > 0) textoSaldo = `+ ${strSaldo} (Horas Extras Reais)`;
     else if (saldoFinal < 0) textoSaldo = `- ${strSaldo} (Horas Faltantes)`;
@@ -1399,16 +1470,16 @@ async function exportarPontosExcel() {
     else textoResultadoGeral = "00:00 (Quitado)";
 
     matrizPlanilha.push([]);
-    
+
     const idxTitle = matrizPlanilha.length;
     matrizPlanilha.push(["RESUMO FINANCEIRO DO PERÍODO", "", "", "", "", "", "", "", ""]);
-    
+
     const idxCarga = matrizPlanilha.length;
     matrizPlanilha.push(["CARGA ESPERADA DO PERÍODO:", "", "", "", "", "", formatarMinutosParaString(somaEsperada), "", ""]);
-    
+
     const idxTrab = matrizPlanilha.length;
     matrizPlanilha.push(["TOTAL REALIZADO:", "", "", "", "", "", formatarMinutosParaString(somaTrab), "", ""]);
-    
+
     const idxSaldo = matrizPlanilha.length;
     matrizPlanilha.push(["SALDO FINAL:", "", "", "", "", "", textoSaldo, "", ""]);
 
@@ -1420,14 +1491,14 @@ async function exportarPontosExcel() {
 
     matrizPlanilha.push([]);
     matrizPlanilha.push([]);
-    
+
     const idxDeclaracao = matrizPlanilha.length;
     matrizPlanilha.push(["Declaro ainda estar ciente de que a apresentação de informações falsas e rasuras, sujeitando-me às penalidades previstas no Art. 299 do Decreto Lei nº 2848 de 07/12/1940.", "", "", "", "", "", "", "", ""]);
-    
+
     matrizPlanilha.push([]);
     matrizPlanilha.push([]);
     matrizPlanilha.push([]);
-    
+
     const idxLinhaAssinatura = matrizPlanilha.length;
     matrizPlanilha.push(["", "", "Assinatura do Colaborador", "", "", "", "", "", ""]);
     const worksheet = XLSX.utils.aoa_to_sheet(matrizPlanilha);
@@ -1480,7 +1551,7 @@ async function exportarPontosExcel() {
         border: bordaSuave
     };
     const range = XLSX.utils.decode_range(worksheet['!ref']);
-    
+
     for (let R = range.s.r; R <= range.e.r; ++R) {
         for (let C = range.s.c; C <= range.e.c; ++C) {
             const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
@@ -1609,18 +1680,18 @@ async function exportarPontosExcel() {
     XLSX.writeFile(workbook, `Folha_Ponto_${colabNome.replace(/ /g, "_")}.xlsx`);
 }
 
-async function imprimirRelatorioGerencial() {
+async function exportarExcelGerencial() {
     const filtroColab = document.getElementById('filtroRelatorioColaborador').value;
-    
+
     if (filtroColab === "todos") {
-        exibirAlertaTop("Selecione um Colaborador", "Por favor, defina qual colaborador deseja emitir o relatório gerencial.");
+        exibirAlertaTop("Selecione um Colaborador", "Por favor, defina qual colaborador deseja exportar para gerar o relatório gerencial.");
         return;
     }
     let dadosRelatorio = await puxarLogsEFiltrar();
-    
+
     const filtroInicio = document.getElementById('filtroRelatorioInicio').value;
     const filtroFim = document.getElementById('filtroRelatorioFim').value;
-    
+
     if (filtroInicio && filtroFim) {
         dadosRelatorio = preencherCalendarioCompleto(dadosRelatorio, filtroInicio, filtroFim, filtroColab);
     } else {
@@ -1643,7 +1714,7 @@ async function imprimirRelatorioGerencial() {
             });
         }
     }
-    
+
     if (dadosRelatorio.length === 0) {
         exibirAlertaTop("Sem Dados", "Não há dados consolidados para o colaborador filtrado.");
         return;
@@ -1665,31 +1736,28 @@ async function imprimirRelatorioGerencial() {
     const cnpjEmpresa = dadosEmpresaAtiva.cnpj || "-";
     const dataEmissao = new Date().toLocaleDateString('pt-BR');
 
-    let somaTrab = 0;
-    let somaExtras = 0;
-    let somaFolgaBh = 0;
-    let somaEsperada = 0;
+    const matrizGerencial = [
+        ["RELATÓRIO GERENCIAL DE HORAS E BANCO DE HORAS"],
+        [],
+        ["EMPRESA:", nomeEmpresa, "", "CNPJ:", cnpjEmpresa, ""],
+        ["COLABORADOR:", colabNome, "", "CPF:", colabCpf, ""],
+        ["CARGO / FUNÇÃO:", colabCargo, "", "EMISSÃO:", dataEmissao, ""],
+        [],
+        ["Data", "Colaborador", "Horas Trab.", "Horas Extras", "Folga BH", "Resultado"]
+    ];
 
-    let linhasHtml = "";
+    let somaTrab = 0;
+    let somaEsperada = 0;
+    let somaFolgaBh = 0;
+
     dadosRelatorio.forEach(r => {
         somaTrab += (r.minutosTrabalhadosNum || 0);
         somaEsperada += (r.minutosEsperadosNum || 0);
 
-        if (r.minutosExtrasNum && r.minutosExtrasNum > 0) {
-            somaExtras += r.minutosExtrasNum;
-        }
-
         const minFolgaBhDia = (r.minutosFolgaBhNum || 0);
         somaFolgaBh += minFolgaBhDia;
 
-        // Horas extras do dia
-        const strHorasExtras = r.horasExtras || "00:00";
-        let corExtra = "#334155";
-        if (strHorasExtras.startsWith("+")) corExtra = "#16a34a";
-        else if (strHorasExtras.startsWith("-")) corExtra = "#dc2626";
-
-        // Folga BH (Integral ou Parcial)
-        let strFolgaBhDia = "00:00";
+        let strFolgaBhDia = "-";
         if (minFolgaBhDia > 0) {
             strFolgaBhDia = formatarMinutosParaString(minFolgaBhDia);
             if (r.statusDia === "FOLGA_BH_PARCIAL" && r.horaInicioBh && r.horaFimBh) {
@@ -1697,133 +1765,168 @@ async function imprimirRelatorioGerencial() {
             }
         }
 
-        // Resultado do Dia: Diferença de horas trabalhadas menos folga BH
         const saldoDiaMin = (r.minutosExtrasNum || 0) - minFolgaBhDia;
         let strResultadoDia = "00:00";
-        let corResultadoDia = "#334155";
-        if (saldoDiaMin > 0) {
-            strResultadoDia = `+${formatarMinutosParaString(saldoDiaMin)}`;
-            corResultadoDia = "#16a34a";
-        } else if (saldoDiaMin < 0) {
-            strResultadoDia = `-${formatarMinutosParaString(Math.abs(saldoDiaMin))}`;
-            corResultadoDia = "#dc2626";
-        }
+        if (saldoDiaMin > 0) strResultadoDia = `+${formatarMinutosParaString(saldoDiaMin)}`;
+        else if (saldoDiaMin < 0) strResultadoDia = `-${formatarMinutosParaString(Math.abs(saldoDiaMin))}`;
 
-        linhasHtml += `
-            <tr>
-                <td style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.85rem; font-weight: 600;">${r.data}</td>
-                <td style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.85rem;">${r.nome}</td>
-                <td style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.85rem; text-align: center; font-weight: bold; color: #0f172a;">${r.horasTrabalhadas || '00:00'}</td>
-                <td style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.85rem; text-align: center; font-weight: bold; color: ${corExtra};">${strHorasExtras}</td>
-                <td style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.85rem; text-align: center; color: ${minFolgaBhDia > 0 ? '#ea580c' : '#64748b'}; font-weight: ${minFolgaBhDia > 0 ? 'bold' : 'normal'};">${strFolgaBhDia}</td>
-                <td style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.85rem; text-align: center; font-weight: bold; color: ${corResultadoDia};">${strResultadoDia}</td>
-            </tr>
-        `;
+        let tagDia = "";
+        if (r.statusDia === "FOLGA_BH") tagDia = " (FOLGA BH)";
+        else if (r.statusDia === "FOLGA_BH_PARCIAL") tagDia = " (FOLGA BH PARCIAL)";
+        else if (r.statusDia && r.statusDia !== "NORMAL" && r.statusDia !== "EDITADO") tagDia = ` (${r.statusDia})`;
+        else if (r.isDomingo) tagDia = " (DOM)";
+
+        matrizGerencial.push([
+            `${r.data}${tagDia}`,
+            r.nome,
+            r.horasTrabalhadas || "00:00",
+            r.horasExtras || "00:00",
+            strFolgaBhDia,
+            strResultadoDia
+        ]);
     });
 
     const saldoPeriodo = somaTrab - somaEsperada;
     const resultadoGeralMin = saldoPeriodo - somaFolgaBh;
     const strResultadoGeral = formatarMinutosParaString(Math.abs(resultadoGeralMin));
-    let textoResultadoGeral = "00:00 (Zerado)";
-    let corGeral = "#0f172a";
-    if (resultadoGeralMin > 0) {
-        textoResultadoGeral = `+ ${strResultadoGeral} (Saldo Positivo)`;
-        corGeral = "#16a34a";
-    } else if (resultadoGeralMin < 0) {
-        textoResultadoGeral = `- ${strResultadoGeral} (Saldo Devedor)`;
-        corGeral = "#dc2626";
+    let textoResultadoGeral = "00:00 (Quitado)";
+    if (resultadoGeralMin > 0) textoResultadoGeral = `+ ${strResultadoGeral} (Saldo Positivo)`;
+    else if (resultadoGeralMin < 0) textoResultadoGeral = `- ${strResultadoGeral} (Saldo Devedor)`;
+
+    matrizGerencial.push([]);
+    const idxTitle = matrizGerencial.length;
+    matrizGerencial.push(["RESUMO DO PERÍODO", "", "", "", "", ""]);
+
+    const idxCarga = matrizGerencial.length;
+    matrizGerencial.push(["CARGA ESPERADA DO PERÍODO:", "", "", "", formatarMinutosParaString(somaEsperada), ""]);
+
+    const idxTrab = matrizGerencial.length;
+    matrizGerencial.push(["TOTAL REALIZADO:", "", "", "", formatarMinutosParaString(somaTrab), ""]);
+
+    const idxFolgaBh = matrizGerencial.length;
+    matrizGerencial.push(["FOLGA BH COMPENSADA:", "", "", "", `- ${formatarMinutosParaString(somaFolgaBh)}`, ""]);
+
+    const idxResultadoGeral = matrizGerencial.length;
+    matrizGerencial.push(["RESULTADO GERAL:", "", "", "", textoResultadoGeral, ""]);
+
+    matrizGerencial.push([]);
+    matrizGerencial.push([]);
+    matrizGerencial.push([]);
+
+    const idxAssinatura = matrizGerencial.length;
+    matrizGerencial.push(["", "Assinatura do Colaborador", "", "", "", ""]);
+
+    const worksheet = XLSX.utils.aoa_to_sheet(matrizGerencial);
+
+    const bordaSuave = {
+        top: { style: "thin", color: { rgb: "CBD5E1" } },
+        bottom: { style: "thin", color: { rgb: "CBD5E1" } },
+        left: { style: "thin", color: { rgb: "CBD5E1" } },
+        right: { style: "thin", color: { rgb: "CBD5E1" } }
+    };
+
+    const range = XLSX.utils.decode_range(worksheet['!ref']);
+    for (let R = range.s.r; R <= range.e.r; ++R) {
+        for (let C = range.s.c; C <= range.e.c; ++C) {
+            const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+            if (!worksheet[cellAddress]) worksheet[cellAddress] = { t: 's', v: '' };
+            const cell = worksheet[cellAddress];
+
+            if (R === 0) {
+                cell.s = {
+                    fill: { fgColor: { rgb: "0F172A" } },
+                    font: { bold: true, color: { rgb: "F97316" }, size: 14, name: "Calibri" },
+                    alignment: { horizontal: "center", vertical: "center" }
+                };
+            } else if (R >= 2 && R <= 4) {
+                if ([0, 3].includes(C) && cell.v) {
+                    cell.s = { fill: { fgColor: { rgb: "F1F5F9" } }, font: { bold: true, color: { rgb: "475569" }, size: 9 }, border: bordaSuave };
+                } else {
+                    cell.s = { fill: { fgColor: { rgb: "FFFFFF" } }, font: { bold: true, color: { rgb: "0F172A" }, size: 9.5 }, border: bordaSuave };
+                }
+            } else if (R === 6) {
+                cell.s = {
+                    fill: { fgColor: { rgb: "0F172A" } },
+                    font: { bold: true, color: { rgb: "FFFFFF" }, size: 10 },
+                    alignment: { horizontal: "center", vertical: "center" },
+                    border: bordaSuave
+                };
+            } else if (R >= 7 && R < idxTitle - 1) {
+                const isPar = (R % 2 === 0);
+                cell.s = {
+                    fill: { fgColor: { rgb: isPar ? "F8FAFC" : "FFFFFF" } },
+                    font: { color: { rgb: "334155" }, size: 9.5 },
+                    alignment: { horizontal: C <= 1 ? "left" : "center", vertical: "center" },
+                    border: bordaSuave
+                };
+                if (C === 2) cell.s.font = { bold: true, color: { rgb: "0F172A" }, size: 9.5 };
+                if (C === 3) {
+                    const vStr = String(cell.v || "");
+                    cell.s.font = { bold: true, color: { rgb: vStr.startsWith("+") ? "059669" : (vStr.startsWith("-") ? "DC2626" : "334155") }, size: 9.5 };
+                }
+                if (C === 4) cell.s.font = { bold: true, color: { rgb: "EA580C" }, size: 9.5 };
+                if (C === 5) {
+                    const vStr = String(cell.v || "");
+                    cell.s.font = { bold: true, color: { rgb: vStr.startsWith("+") ? "059669" : (vStr.startsWith("-") ? "DC2626" : "334155") }, size: 9.5 };
+                }
+            } else if (R === idxTitle) {
+                cell.s = {
+                    fill: { fgColor: { rgb: "0F172A" } },
+                    font: { bold: true, color: { rgb: "FFFFFF" }, size: 10 },
+                    alignment: { horizontal: "center", vertical: "center" },
+                    border: bordaSuave
+                };
+            } else if (R >= idxCarga && R <= idxResultadoGeral) {
+                if (C <= 3) {
+                    cell.s = { fill: { fgColor: { rgb: "F8FAFC" } }, font: { bold: true, color: { rgb: "334155" }, size: 9.5 }, alignment: { horizontal: "right", vertical: "center" }, border: bordaSuave };
+                } else {
+                    let corTexto = "0F172A";
+                    if (R === idxResultadoGeral) corTexto = resultadoGeralMin > 0 ? "059669" : (resultadoGeralMin < 0 ? "DC2626" : "0F172A");
+                    if (R === idxFolgaBh) corTexto = "EA580C";
+                    cell.s = { fill: { fgColor: { rgb: "FFFFFF" } }, font: { bold: true, color: { rgb: corTexto }, size: 10.5 }, alignment: { horizontal: "center", vertical: "center" }, border: bordaSuave };
+                }
+            } else if (R === idxAssinatura) {
+                cell.s = {
+                    font: { bold: true, color: { rgb: "1E293B" }, size: 10 },
+                    alignment: { horizontal: "center", vertical: "top" },
+                    border: { top: { style: "medium", color: { rgb: "0F172A" } } }
+                };
+            }
+        }
     }
 
-    const htmlImpressao = `
-        <!DOCTYPE html>
-        <html lang="pt-BR">
-        <head>
-            <meta charset="UTF-8">
-            <title>Relatório Gerencial - ${colabNome}</title>
-            <style>
-                @page { size: A4; margin: 15mm; }
-                body { font-family: 'Segoe UI', Arial, sans-serif; color: #0f172a; margin: 0; padding: 10px; background: #fff; }
-                .header-relatorio { border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 20px; }
-                .titulo-relatorio { font-size: 1.4rem; font-weight: 800; color: #0f172a; text-transform: uppercase; margin-bottom: 6px; }
-                .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 0.85rem; margin-top: 10px; }
-                .tabela-relatorio { width: 100%; border-collapse: collapse; margin-top: 15px; margin-bottom: 20px; }
-                .tabela-relatorio th { background-color: #0f172a; color: #ffffff; padding: 9px 10px; font-size: 0.8rem; text-transform: uppercase; text-align: left; }
-                .resumo-box { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 16px; margin-top: 20px; font-size: 0.9rem; line-height: 1.8; }
-                .linha-assinatura-container { margin-top: 60px; text-align: center; page-break-inside: avoid; }
-                .linha-assinatura { width: 340px; margin: 0 auto; border-top: 1.5px solid #0f172a; padding-top: 8px; font-size: 0.95rem; font-weight: bold; }
-                .sub-assinatura { font-size: 0.8rem; color: #64748b; margin-top: 2px; }
-                @media print {
-                    body { padding: 0; }
-                    .no-print { display: none !important; }
-                }
-            </style>
-        </head>
-        <body>
-            <div class="header-relatorio">
-                <div class="titulo-relatorio">Relatório Gerencial de Horas e Banco de Horas</div>
-                <div class="info-grid">
-                    <div><strong>Empresa:</strong> ${nomeEmpresa}</div>
-                    <div><strong>CNPJ:</strong> ${cnpjEmpresa}</div>
-                    <div><strong>Colaborador:</strong> ${colabNome}</div>
-                    <div><strong>CPF:</strong> ${colabCpf}</div>
-                    <div><strong>Cargo / Função:</strong> ${colabCargo}</div>
-                    <div><strong>Data de Emissão:</strong> ${dataEmissao}</div>
-                </div>
-            </div>
+    worksheet['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 5 } },
+        { s: { r: 2, c: 1 }, e: { r: 2, c: 2 } },
+        { s: { r: 2, c: 4 }, e: { r: 2, c: 5 } },
+        { s: { r: 3, c: 1 }, e: { r: 3, c: 2 } },
+        { s: { r: 3, c: 4 }, e: { r: 3, c: 5 } },
+        { s: { r: 4, c: 1 }, e: { r: 4, c: 2 } },
+        { s: { r: 4, c: 4 }, e: { r: 4, c: 5 } },
+        { s: { r: idxTitle, c: 0 }, e: { r: idxTitle, c: 5 } },
+        { s: { r: idxCarga, c: 0 }, e: { r: idxCarga, c: 3 } },
+        { s: { r: idxCarga, c: 4 }, e: { r: idxCarga, c: 5 } },
+        { s: { r: idxTrab, c: 0 }, e: { r: idxTrab, c: 3 } },
+        { s: { r: idxTrab, c: 4 }, e: { r: idxTrab, c: 5 } },
+        { s: { r: idxFolgaBh, c: 0 }, e: { r: idxFolgaBh, c: 3 } },
+        { s: { r: idxFolgaBh, c: 4 }, e: { r: idxFolgaBh, c: 5 } },
+        { s: { r: idxResultadoGeral, c: 0 }, e: { r: idxResultadoGeral, c: 3 } },
+        { s: { r: idxResultadoGeral, c: 4 }, e: { r: idxResultadoGeral, c: 5 } },
+        { s: { r: idxAssinatura, c: 1 }, e: { r: idxAssinatura, c: 4 } }
+    ];
 
-            <table class="tabela-relatorio">
-                <thead>
-                    <tr>
-                        <th style="width: 15%;">Data</th>
-                        <th style="width: 25%;">Colaborador</th>
-                        <th style="width: 15%; text-align: center;">Horas Trab.</th>
-                        <th style="width: 15%; text-align: center;">Horas Extras</th>
-                        <th style="width: 15%; text-align: center;">Folga BH</th>
-                        <th style="width: 15%; text-align: center;">Resultado</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${linhasHtml}
-                </tbody>
-            </table>
+    worksheet['!cols'] = [
+        { wch: 18 },
+        { wch: 32 },
+        { wch: 14 },
+        { wch: 14 },
+        { wch: 16 },
+        { wch: 16 }
+    ];
 
-            <div class="resumo-box">
-                <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; margin-bottom: 6px;">
-                    <span><strong>Carga Esperada do Período:</strong></span>
-                    <span>${formatarMinutosParaString(somaEsperada)}</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; margin-bottom: 6px;">
-                    <span><strong>Total de Horas Trabalhadas:</strong></span>
-                    <span style="font-weight: bold; color: #16a34a;">${formatarMinutosParaString(somaTrab)}</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; margin-bottom: 6px;">
-                    <span><strong>Total de Folgas BH (Compensadas):</strong></span>
-                    <span style="font-weight: bold; color: #ea580c;">- ${formatarMinutosParaString(somaFolgaBh)}</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; padding-top: 4px; font-size: 1.05rem;">
-                    <span><strong>RESULTADO GERAL DO PERÍODO:</strong></span>
-                    <span style="font-weight: 900; color: ${corGeral};">${textoResultadoGeral}</span>
-                </div>
-            </div>
-
-            <div class="linha-assinatura-container">
-                <div class="linha-assinatura">${colabNome}</div>
-                <div class="sub-assinatura">CPF: ${colabCpf} | Assinatura do Colaborador</div>
-            </div>
-
-            <script>
-                window.onload = function() {
-                    window.print();
-                };
-            <\/script>
-        </body>
-        </html>
-    `;
-
-    const janelaImpressao = window.open('', '_blank');
-    janelaImpressao.document.open();
-    janelaImpressao.document.write(htmlImpressao);
-    janelaImpressao.document.close();
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Resumo_Gerencial");
+    XLSX.writeFile(workbook, `Relatorio_Gerencial_${colabNome.replace(/ /g, "_")}.xlsx`);
 }
 
 let idConfigNuvemAtual = null;
@@ -1844,7 +1947,7 @@ async function buscarCoordenadasPorCEP() {
         const dadosCep = await resViaCep.json();
         if (dadosCep.erro) throw new Error("CEP não encontrado na base de dados.");
         const enderecoCompleto = `${dadosCep.logradouro}${numInput ? ', ' + numInput : ''}, ${dadosCep.bairro}, ${dadosCep.localidade} - ${dadosCep.uf}`;
-        
+
         btn.innerText = "⏳ Buscando Coordenadas...";
         const query = encodeURIComponent(`${dadosCep.logradouro}, ${dadosCep.localidade}, ${dadosCep.uf}, Brazil`);
         const resGeo = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}&limit=1`);
@@ -1893,7 +1996,7 @@ function obterLocalizacaoAtual() {
             document.getElementById("longitude").value = position.coords.longitude;
             document.getElementById("boxEndereco").style.display = "block";
             document.getElementById("enderecoTexto").innerText = "Localização capturada via GPS do dispositivo.";
-            
+
             btn.innerText = textoOriginal;
             btn.disabled = false;
             exibirAlertaTop("📍 Sucesso", "Coordenadas capturadas com sucesso via GPS!");
@@ -1922,7 +2025,7 @@ async function salvarConfiguracoes() {
         raio: document.getElementById("raioTolerancia").value,
         endereco: document.getElementById("enderecoTexto").innerText
     };
-    
+
     try {
         if (idConfigNuvemAtual) {
             await db.collection("configuracoes_empresa").doc(idConfigNuvemAtual).update(configs);
@@ -1936,7 +2039,7 @@ async function salvarConfiguracoes() {
         btnSalvar.classList.remove("btn-primary");
         btnSalvar.classList.add("btn-success");
         btnSalvar.innerText = "✓ Configurações Salvas na Nuvem!";
-        
+
         setTimeout(() => {
             btnSalvar.classList.remove("btn-success");
             btnSalvar.classList.add("btn-primary");
@@ -1953,13 +2056,13 @@ async function carregarConfigsNuvem() {
     try {
         const snapshot = await db.collection("configuracoes_empresa").where("empresaEmail", "==", PREFIXO_EMPRESA).get();
         let configs = {};
-        
+
         if (!snapshot.empty) {
             const doc = snapshot.docs[0];
             configs = doc.data();
             idConfigNuvemAtual = doc.id;
         }
-        
+
         const nomeExibicao = configs.nomeEmpresa || sessionStorage.getItem("nome_empresa_ativa") || "Empresa Parceira";
         if(document.getElementById("nomeEmpresa")) document.getElementById("nomeEmpresa").value = nomeExibicao;
         if(document.getElementById("cepBusca")) document.getElementById("cepBusca").value = configs.cep || "";
@@ -1967,7 +2070,7 @@ async function carregarConfigsNuvem() {
         if(document.getElementById("latitude")) document.getElementById("latitude").value = configs.latitude || "";
         if(document.getElementById("longitude")) document.getElementById("longitude").value = configs.longitude || "";
         if(document.getElementById("raioTolerancia")) document.getElementById("raioTolerancia").value = configs.raio || "50";
-        
+
         if(configs.endereco && document.getElementById("boxEndereco")) {
             document.getElementById("boxEndereco").style.display = "block";
             document.getElementById("enderecoTexto").innerText = configs.endereco;
@@ -1993,7 +2096,7 @@ function controlarCamposConfiguracao(bloquear) {
     if(document.getElementById("longitude")) document.getElementById("longitude").disabled = bloquear;
     if(document.getElementById("raioTolerancia")) document.getElementById("raioTolerancia").disabled = bloquear;
     if(document.getElementById("btnSalvarConfigs")) document.getElementById("btnSalvarConfigs").disabled = bloquear;
-    
+
     if(document.getElementById("btnGpsConfigs")) document.getElementById("btnGpsConfigs").disabled = bloquear;
     if(document.getElementById("btnBuscarCep")) document.getElementById("btnBuscarCep").disabled = bloquear;
 }
