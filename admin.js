@@ -1609,6 +1609,223 @@ async function exportarPontosExcel() {
     XLSX.writeFile(workbook, `Folha_Ponto_${colabNome.replace(/ /g, "_")}.xlsx`);
 }
 
+async function imprimirRelatorioGerencial() {
+    const filtroColab = document.getElementById('filtroRelatorioColaborador').value;
+    
+    if (filtroColab === "todos") {
+        exibirAlertaTop("Selecione um Colaborador", "Por favor, defina qual colaborador deseja emitir o relatório gerencial.");
+        return;
+    }
+    let dadosRelatorio = await puxarLogsEFiltrar();
+    
+    const filtroInicio = document.getElementById('filtroRelatorioInicio').value;
+    const filtroFim = document.getElementById('filtroRelatorioFim').value;
+    
+    if (filtroInicio && filtroFim) {
+        dadosRelatorio = preencherCalendarioCompleto(dadosRelatorio, filtroInicio, filtroFim, filtroColab);
+    } else {
+        if (filtroInicio) {
+            const dInicio = new Date(filtroInicio + "T00:00:00");
+            dadosRelatorio = dadosRelatorio.filter(r => {
+                if(!r.data) return false;
+                const p = r.data.split('/');
+                if(p.length !== 3) return false;
+                return new Date(p[2], p[1]-1, p[0]) >= dInicio;
+            });
+        }
+        if (filtroFim) {
+            const dFim = new Date(filtroFim + "T23:59:59");
+            dadosRelatorio = dadosRelatorio.filter(r => {
+                if(!r.data) return false;
+                const p = r.data.split('/');
+                if(p.length !== 3) return false;
+                return new Date(p[2], p[1]-1, p[0]) <= dFim;
+            });
+        }
+    }
+    
+    if (dadosRelatorio.length === 0) {
+        exibirAlertaTop("Sem Dados", "Não há dados consolidados para o colaborador filtrado.");
+        return;
+    }
+
+    dadosRelatorio.sort((a,b) => {
+        if (!a.data || !b.data) return 0;
+        const pa = a.data.split('/');
+        const pb = b.data.split('/');
+        if(pa.length !== 3 || pb.length !== 3) return 0;
+        return new Date(pa[2], pa[1]-1, pa[0]) - new Date(pb[2], pb[1]-1, pb[0]);
+    });
+
+    const user = bancoUsuarios.find(u => String(u.id) === String(filtroColab)) || {};
+    const colabNome = user.nome || dadosRelatorio[0].nome;
+    const colabCpf = user.cpf || "-";
+    const colabCargo = user.cargo || user.funcao || "-";
+    const nomeEmpresa = dadosEmpresaAtiva.nome || sessionStorage.getItem("nome_empresa_ativa") || "Empresa Parceira";
+    const cnpjEmpresa = dadosEmpresaAtiva.cnpj || "-";
+    const dataEmissao = new Date().toLocaleDateString('pt-BR');
+
+    let somaTrab = 0;
+    let somaExtras = 0;
+    let somaFolgaBh = 0;
+    let somaEsperada = 0;
+
+    let linhasHtml = "";
+    dadosRelatorio.forEach(r => {
+        somaTrab += (r.minutosTrabalhadosNum || 0);
+        somaEsperada += (r.minutosEsperadosNum || 0);
+
+        if (r.minutosExtrasNum && r.minutosExtrasNum > 0) {
+            somaExtras += r.minutosExtrasNum;
+        }
+
+        const minFolgaBhDia = (r.minutosFolgaBhNum || 0);
+        somaFolgaBh += minFolgaBhDia;
+
+        // Horas extras do dia
+        const strHorasExtras = r.horasExtras || "00:00";
+        let corExtra = "#334155";
+        if (strHorasExtras.startsWith("+")) corExtra = "#16a34a";
+        else if (strHorasExtras.startsWith("-")) corExtra = "#dc2626";
+
+        // Folga BH (Integral ou Parcial)
+        let strFolgaBhDia = "00:00";
+        if (minFolgaBhDia > 0) {
+            strFolgaBhDia = formatarMinutosParaString(minFolgaBhDia);
+            if (r.statusDia === "FOLGA_BH_PARCIAL" && r.horaInicioBh && r.horaFimBh) {
+                strFolgaBhDia += ` (${r.horaInicioBh}-${r.horaFimBh})`;
+            }
+        }
+
+        // Resultado do Dia: Diferença de horas trabalhadas menos folga BH
+        const saldoDiaMin = (r.minutosExtrasNum || 0) - minFolgaBhDia;
+        let strResultadoDia = "00:00";
+        let corResultadoDia = "#334155";
+        if (saldoDiaMin > 0) {
+            strResultadoDia = `+${formatarMinutosParaString(saldoDiaMin)}`;
+            corResultadoDia = "#16a34a";
+        } else if (saldoDiaMin < 0) {
+            strResultadoDia = `-${formatarMinutosParaString(Math.abs(saldoDiaMin))}`;
+            corResultadoDia = "#dc2626";
+        }
+
+        linhasHtml += `
+            <tr>
+                <td style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.85rem; font-weight: 600;">${r.data}</td>
+                <td style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.85rem;">${r.nome}</td>
+                <td style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.85rem; text-align: center; font-weight: bold; color: #0f172a;">${r.horasTrabalhadas || '00:00'}</td>
+                <td style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.85rem; text-align: center; font-weight: bold; color: ${corExtra};">${strHorasExtras}</td>
+                <td style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.85rem; text-align: center; color: ${minFolgaBhDia > 0 ? '#ea580c' : '#64748b'}; font-weight: ${minFolgaBhDia > 0 ? 'bold' : 'normal'};">${strFolgaBhDia}</td>
+                <td style="padding: 8px 10px; border-bottom: 1px solid #e2e8f0; font-size: 0.85rem; text-align: center; font-weight: bold; color: ${corResultadoDia};">${strResultadoDia}</td>
+            </tr>
+        `;
+    });
+
+    const saldoPeriodo = somaTrab - somaEsperada;
+    const resultadoGeralMin = saldoPeriodo - somaFolgaBh;
+    const strResultadoGeral = formatarMinutosParaString(Math.abs(resultadoGeralMin));
+    let textoResultadoGeral = "00:00 (Zerado)";
+    let corGeral = "#0f172a";
+    if (resultadoGeralMin > 0) {
+        textoResultadoGeral = `+ ${strResultadoGeral} (Saldo Positivo)`;
+        corGeral = "#16a34a";
+    } else if (resultadoGeralMin < 0) {
+        textoResultadoGeral = `- ${strResultadoGeral} (Saldo Devedor)`;
+        corGeral = "#dc2626";
+    }
+
+    const htmlImpressao = `
+        <!DOCTYPE html>
+        <html lang="pt-BR">
+        <head>
+            <meta charset="UTF-8">
+            <title>Relatório Gerencial - ${colabNome}</title>
+            <style>
+                @page { size: A4; margin: 15mm; }
+                body { font-family: 'Segoe UI', Arial, sans-serif; color: #0f172a; margin: 0; padding: 10px; background: #fff; }
+                .header-relatorio { border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 20px; }
+                .titulo-relatorio { font-size: 1.4rem; font-weight: 800; color: #0f172a; text-transform: uppercase; margin-bottom: 6px; }
+                .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 0.85rem; margin-top: 10px; }
+                .tabela-relatorio { width: 100%; border-collapse: collapse; margin-top: 15px; margin-bottom: 20px; }
+                .tabela-relatorio th { background-color: #0f172a; color: #ffffff; padding: 9px 10px; font-size: 0.8rem; text-transform: uppercase; text-align: left; }
+                .resumo-box { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 16px; margin-top: 20px; font-size: 0.9rem; line-height: 1.8; }
+                .linha-assinatura-container { margin-top: 60px; text-align: center; page-break-inside: avoid; }
+                .linha-assinatura { width: 340px; margin: 0 auto; border-top: 1.5px solid #0f172a; padding-top: 8px; font-size: 0.95rem; font-weight: bold; }
+                .sub-assinatura { font-size: 0.8rem; color: #64748b; margin-top: 2px; }
+                @media print {
+                    body { padding: 0; }
+                    .no-print { display: none !important; }
+                }
+            </style>
+        </head>
+        <body>
+            <div class="header-relatorio">
+                <div class="titulo-relatorio">Relatório Gerencial de Horas e Banco de Horas</div>
+                <div class="info-grid">
+                    <div><strong>Empresa:</strong> ${nomeEmpresa}</div>
+                    <div><strong>CNPJ:</strong> ${cnpjEmpresa}</div>
+                    <div><strong>Colaborador:</strong> ${colabNome}</div>
+                    <div><strong>CPF:</strong> ${colabCpf}</div>
+                    <div><strong>Cargo / Função:</strong> ${colabCargo}</div>
+                    <div><strong>Data de Emissão:</strong> ${dataEmissao}</div>
+                </div>
+            </div>
+
+            <table class="tabela-relatorio">
+                <thead>
+                    <tr>
+                        <th style="width: 15%;">Data</th>
+                        <th style="width: 25%;">Colaborador</th>
+                        <th style="width: 15%; text-align: center;">Horas Trab.</th>
+                        <th style="width: 15%; text-align: center;">Horas Extras</th>
+                        <th style="width: 15%; text-align: center;">Folga BH</th>
+                        <th style="width: 15%; text-align: center;">Resultado</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${linhasHtml}
+                </tbody>
+            </table>
+
+            <div class="resumo-box">
+                <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; margin-bottom: 6px;">
+                    <span><strong>Carga Esperada do Período:</strong></span>
+                    <span>${formatarMinutosParaString(somaEsperada)}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; margin-bottom: 6px;">
+                    <span><strong>Total de Horas Trabalhadas:</strong></span>
+                    <span style="font-weight: bold; color: #16a34a;">${formatarMinutosParaString(somaTrab)}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; margin-bottom: 6px;">
+                    <span><strong>Total de Folgas BH (Compensadas):</strong></span>
+                    <span style="font-weight: bold; color: #ea580c;">- ${formatarMinutosParaString(somaFolgaBh)}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; padding-top: 4px; font-size: 1.05rem;">
+                    <span><strong>RESULTADO GERAL DO PERÍODO:</strong></span>
+                    <span style="font-weight: 900; color: ${corGeral};">${textoResultadoGeral}</span>
+                </div>
+            </div>
+
+            <div class="linha-assinatura-container">
+                <div class="linha-assinatura">${colabNome}</div>
+                <div class="sub-assinatura">CPF: ${colabCpf} | Assinatura do Colaborador</div>
+            </div>
+
+            <script>
+                window.onload = function() {
+                    window.print();
+                };
+            <\/script>
+        </body>
+        </html>
+    `;
+
+    const janelaImpressao = window.open('', '_blank');
+    janelaImpressao.document.open();
+    janelaImpressao.document.write(htmlImpressao);
+    janelaImpressao.document.close();
+}
+
 let idConfigNuvemAtual = null;
 
 async function buscarCoordenadasPorCEP() {
