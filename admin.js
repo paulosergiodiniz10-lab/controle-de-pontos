@@ -562,7 +562,9 @@ function consolidarLogsBrutos(logsArray) {
                 statusDia: "NORMAL",
                 observacoes: [],
                 horaInicioAtestado: log.horaInicioAtestado || "",
-                horaFimAtestado: log.horaFimAtestado || ""
+                horaFimAtestado: log.horaFimAtestado || "",
+                horaInicioBh: log.horaInicioBh || "",
+                horaFimBh: log.horaFimBh || ""
             };
         }
         if (log.tipo === "Entrada") espelhosAgrupados[chaveChave].entrada = log.hora;
@@ -574,6 +576,8 @@ function consolidarLogsBrutos(logsArray) {
         }
         if (log.horaInicioAtestado) espelhosAgrupados[chaveChave].horaInicioAtestado = log.horaInicioAtestado;
         if (log.horaFimAtestado) espelhosAgrupados[chaveChave].horaFimAtestado = log.horaFimAtestado;
+        if (log.horaInicioBh) espelhosAgrupados[chaveChave].horaInicioBh = log.horaInicioBh;
+        if (log.horaFimBh) espelhosAgrupados[chaveChave].horaFimBh = log.horaFimBh;
 
         if (log.observacao && log.observacao.trim() !== "") {
             espelhosAgrupados[chaveChave].observacoes.push({
@@ -644,10 +648,18 @@ function consolidarLogsBrutos(logsArray) {
                 }
             }
 
-            // Folga BH: Não soma como trabalhado no espelho diário e desconta do saldo
+            // Folga BH Integral: não soma como trabalhado e desconta o dia completo
             if (r.statusDia === "FOLGA_BH") {
                 r.minutosFolgaBhNum = cargaObrigatoriaDoDia;
                 minutosTrabalhados = 0;
+            }
+
+            // Folga BH Parcial (Horas): calcula apenas os minutos entre início e fim
+            if (r.statusDia === "FOLGA_BH_PARCIAL" || (r.horaInicioBh && r.horaFimBh)) {
+                const minIniBh = bolarTempoParaMinutos(r.horaInicioBh) || 0;
+                const minFimBh = bolarTempoParaMinutos(r.horaFimBh) || 0;
+                const minBhParcial = Math.max(0, minFimBh - minIniBh);
+                r.minutosFolgaBhNum = minBhParcial;
             }
             
             let diferencaDia = minutosTrabalhados - cargaObrigatoriaDoDia;
@@ -775,7 +787,9 @@ function preencherCalendarioCompleto(dadosConsolidados, dataInicioStr, dataFimSt
                 statusDia: "NORMAL",
                 observacoes: [],
                 horaInicioAtestado: "",
-                horaFimAtestado: ""
+                horaFimAtestado: "",
+                horaInicioBh: "",
+                horaFimBh: ""
             });
         }
         cur.setDate(cur.getDate() + 1);
@@ -799,15 +813,46 @@ window.abrirModalLerObs = function(obsStrBase64) {
 };
 
 window.alternarCamposPorStatus = function() {
-    const status = document.getElementById("ajusteStatusDia").value;
-    const containerPeriodo = document.getElementById("containerPeriodoStatus");
-    const containerCamposHorarios = document.getElementById("containerCamposHorarios");
-    if (status === "FERIAS" || status === "ATESTADO" || status === "FOLGA" || status === "FOLGA_BH") {
-        if (containerPeriodo) containerPeriodo.style.display = "block";
-        if (containerCamposHorarios) containerCamposHorarios.style.display = "none";
-    } else {
-        if (containerPeriodo) containerPeriodo.style.display = "none";
-        if (containerCamposHorarios) containerCamposHorarios.style.display = "flex";
+    const statusEl = document.getElementById("ajusteStatusDia");
+    const boxParcial = document.getElementById("containerHorariosParciais");
+    const tituloParcial = document.getElementById("tituloHorariosParciais");
+    const boxPeriodo = document.getElementById("containerPeriodoStatus");
+    const boxHorarios = document.getElementById("containerCamposHorarios");
+
+    if (!statusEl) return;
+    const status = statusEl.value;
+
+    if (boxParcial) {
+        if (status === "ATESTADO_PARCIAL" || status === "FOLGA_BH_PARCIAL") {
+            boxParcial.style.display = "block";
+            if (tituloParcial) {
+                tituloParcial.innerText = (status === "ATESTADO_PARCIAL") 
+                    ? "⏱️ Período do Atestado Parcial:" 
+                    : "⏱️ Horas Utilizadas do Banco de Horas (BH):";
+            }
+        } else {
+            boxParcial.style.display = "none";
+            const hInicio = document.getElementById("horaInicioParcial");
+            const hFim = document.getElementById("horaFimParcial");
+            if (hInicio) hInicio.value = "";
+            if (hFim) hFim.value = "";
+        }
+    }
+
+    if (boxPeriodo) {
+        if (["FERIAS", "FOLGA", "FOLGA_BH", "ATESTADO"].includes(status)) {
+            boxPeriodo.style.display = "block";
+        } else {
+            boxPeriodo.style.display = "none";
+        }
+    }
+
+    if (boxHorarios) {
+        if (["FERIAS", "FOLGA", "FOLGA_BH", "ATESTADO"].includes(status)) {
+            boxHorarios.style.display = "none";
+        } else {
+            boxHorarios.style.display = "flex";
+        }
     }
 };
 
@@ -823,10 +868,23 @@ window.abrirModalEditarDia = function(diaBase64) {
     const inputFim = document.getElementById("ajusteDataFimPeriodo");
     if (inputInicio) inputInicio.value = dataIsoDia;
     if (inputFim) inputFim.value = dataIsoDia;
-    const statusAtual = (obj.statusDia === "EDITADO") ? "NORMAL" : (obj.statusDia || "NORMAL");
+
+    let statusAtual = (obj.statusDia === "EDITADO") ? "NORMAL" : (obj.statusDia || "NORMAL");
+    if (obj.horaInicioBh && obj.horaFimBh) {
+        statusAtual = "FOLGA_BH_PARCIAL";
+    }
     document.getElementById("ajusteStatusDia").value = statusAtual;
-    document.getElementById("horaInicioAtestado").value = obj.horaInicioAtestado || "";
-    document.getElementById("horaFimAtestado").value = obj.horaFimAtestado || "";
+
+    const inputHoraIni = document.getElementById("horaInicioParcial");
+    const inputHoraFim = document.getElementById("horaFimParcial");
+    if (statusAtual === "FOLGA_BH_PARCIAL") {
+        if (inputHoraIni) inputHoraIni.value = obj.horaInicioBh || "";
+        if (inputHoraFim) inputHoraFim.value = obj.horaFimBh || "";
+    } else {
+        if (inputHoraIni) inputHoraIni.value = obj.horaInicioAtestado || "";
+        if (inputHoraFim) inputHoraFim.value = obj.horaFimAtestado || "";
+    }
+
     alternarCamposPorStatus();
     document.getElementById("ajusteEntrada").value = (obj.entrada && obj.entrada !== "-") ? obj.entrada : "";
     document.getElementById("ajusteAlmIda").value = (obj.almocoIda && obj.almocoIda !== "-") ? obj.almocoIda : "";
@@ -855,9 +913,23 @@ async function salvarAjusteHorariosDia(event) {
     const hAlmIda = document.getElementById("ajusteAlmIda").value;
     const hAlmVolta = document.getElementById("ajusteAlmVolta").value;
     const hSaida = document.getElementById("ajusteSaida").value;
-    const horaInicioAtestado = document.getElementById("horaInicioAtestado") ? document.getElementById("horaInicioAtestado").value : "";
-    const horaFimAtestado = document.getElementById("horaFimAtestado") ? document.getElementById("horaFimAtestado").value : "";
+
+    const horaInicioParcial = document.getElementById("horaInicioParcial") ? document.getElementById("horaInicioParcial").value : "";
+    const horaFimParcial = document.getElementById("horaFimParcial") ? document.getElementById("horaFimParcial").value : "";
     const observacaoTexto = document.getElementById("ajusteObservacaoTexto") ? document.getElementById("ajusteObservacaoTexto").value.trim() : "";
+
+    let horaInicioAtestado = "";
+    let horaFimAtestado = "";
+    let horaInicioBh = "";
+    let horaFimBh = "";
+
+    if (statusDiaEscolhido === "ATESTADO_PARCIAL") {
+        horaInicioAtestado = horaInicioParcial;
+        horaFimAtestado = horaFimParcial;
+    } else if (statusDiaEscolhido === "FOLGA_BH_PARCIAL") {
+        horaInicioBh = horaInicioParcial;
+        horaFimBh = horaFimParcial;
+    }
 
     const btn = document.getElementById("btnSalvarAjusteDia");
     btn.disabled = true;
@@ -898,8 +970,10 @@ async function salvarAjusteHorariosDia(event) {
                     for (let doc of snapExistentes.docs) {
                         const payloadUpdate = {
                             statusDia: statusDiaEscolhido,
-                            horaInicioAtestado: horaInicioAtestado,
-                            horaFimAtestado: horaFimAtestado
+                            horaInicioAtestado: "",
+                            horaFimAtestado: "",
+                            horaInicioBh: "",
+                            horaFimBh: ""
                         };
                         if (observacaoTexto !== "") payloadUpdate.observacao = observacaoTexto;
                         await db.collection("historico_pontos").doc(doc.id).update(payloadUpdate);
@@ -912,8 +986,10 @@ async function salvarAjusteHorariosDia(event) {
                         tipo: "Registro Especial",
                         hora: "-",
                         statusDia: statusDiaEscolhido,
-                        horaInicioAtestado: horaInicioAtestado,
-                        horaFimAtestado: horaFimAtestado,
+                        horaInicioAtestado: "",
+                        horaFimAtestado: "",
+                        horaInicioBh: "",
+                        horaFimBh: "",
                         observacao: observacaoTexto,
                         empresaEmail: PREFIXO_EMPRESA,
                         timestamp: firebase.firestore.FieldValue.serverTimestamp()
@@ -950,13 +1026,15 @@ async function salvarAjusteHorariosDia(event) {
         let salvouAlgumPonto = false;
         for (let item of tiposHorarios) {
             const docId = mapaDocExistente[item.tipo];
-            if ((item.hora && item.hora.trim() !== "") || (horaInicioAtestado !== "" || horaFimAtestado !== "")) {
+            if ((item.hora && item.hora.trim() !== "") || (horaInicioParcial !== "" || horaFimParcial !== "")) {
                 salvouAlgumPonto = true;
                 const payloadDoc = {
                     hora: item.hora.trim(),
                     statusDia: statusDiaEscolhido,
                     horaInicioAtestado: horaInicioAtestado,
-                    horaFimAtestado: horaFimAtestado
+                    horaFimAtestado: horaFimAtestado,
+                    horaInicioBh: horaInicioBh,
+                    horaFimBh: horaFimBh
                 };
                 if (observacaoTexto !== "") {
                     payloadDoc.observacao = observacaoTexto;
@@ -980,12 +1058,14 @@ async function salvarAjusteHorariosDia(event) {
                 }
             }
         }
-        if (!salvouAlgumPonto && (statusDiaEscolhido !== "NORMAL" || observacaoTexto !== "")) {
+        if (!salvouAlgumPonto && (statusDiaEscolhido !== "NORMAL" || observacaoTexto !== "" || horaInicioParcial !== "")) {
             const docGenerico = snapExistentes.docs[0];
             const payloadGen = {
                 statusDia: statusDiaEscolhido,
                 horaInicioAtestado: horaInicioAtestado,
                 horaFimAtestado: horaFimAtestado,
+                horaInicioBh: horaInicioBh,
+                horaFimBh: horaFimBh,
                 observacao: observacaoTexto
             };
             if (docGenerico) {
@@ -1102,6 +1182,8 @@ async function filtrarRelatorioTela() {
             tagStatusHtml = ` <span class="badge text-white border ms-1" style="font-size:0.65rem; background-color: #0d9488 !important;">FOLGA</span>`;
         } else if (r.statusDia === "FOLGA_BH") {
             tagStatusHtml = ` <span class="badge text-white border ms-1" style="font-size:0.65rem; background-color: #ea580c !important;">FOLGA BH</span>`;
+        } else if (r.statusDia === "FOLGA_BH_PARCIAL" || (r.horaInicioBh && r.horaFimBh)) {
+            tagStatusHtml = ` <span class="badge text-white border ms-1" style="font-size:0.65rem; background-color: #ea580c !important;">FOLGA BH (${r.horaInicioBh || ''} - ${r.horaFimBh || ''})</span>`;
         } else if (r.statusDia === "EDITADO") {
             tagStatusHtml = ` <span class="badge bg-danger text-white border ms-1" style="font-size:0.65rem;">EDITADO</span>`;
         } else if (r.isDomingo) {
@@ -1278,14 +1360,20 @@ async function exportarPontosExcel() {
         } else if (r.statusDia === "FOLGA") {
             textoObsFinal = "Folga Abonada / Compensatória";
         } else if (r.statusDia === "FOLGA_BH") {
-            textoObsFinal = "Folga BH [Banco de Horas]";
+            textoObsFinal = "Folga BH (Dia Integral)";
+        } else if (r.statusDia === "FOLGA_BH_PARCIAL" || (r.horaInicioBh && r.horaFimBh)) {
+            textoObsFinal = `Folga BH Parcial (${r.horaInicioBh} às ${r.horaFimBh})`;
         } else if (r.isDomingo) {
             textoObsFinal = "Descanso Semanal (DSR / Domingo)";
         }
         
         let tagExcel = "";
-        if (r.statusDia && r.statusDia !== "NORMAL" && r.statusDia !== "EDITADO") {
-            tagExcel = ` (${r.statusDia === "FOLGA_BH" ? "FOLGA BH" : r.statusDia})`;
+        if (r.statusDia === "FOLGA_BH") {
+            tagExcel = " (FOLGA BH)";
+        } else if (r.statusDia === "FOLGA_BH_PARCIAL" || (r.horaInicioBh && r.horaFimBh)) {
+            tagExcel = ` (FOLGA BH ${r.horaInicioBh}-${r.horaFimBh})`;
+        } else if (r.statusDia && r.statusDia !== "NORMAL" && r.statusDia !== "EDITADO") {
+            tagExcel = ` (${r.statusDia})`;
         } else if (r.isDomingo) {
             tagExcel = " (DOM)";
         }
