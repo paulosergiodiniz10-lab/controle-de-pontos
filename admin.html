@@ -591,7 +591,7 @@
       </div>
     </div>
 
-    <!-- MODAL EDITAR HORÁRIOS E STATUS DO DIA (COM OPÇÃO DE FOLGA, FÉRIAS E ATESTADO POR PERÍODO) -->
+    <!-- MODAL EDITAR HORÁRIOS E STATUS DO DIA (COM OPÇÃO DE FOLGA, FOLGA BH, FÉRIAS E ATESTADO POR PERÍODO) -->
     <div class="modal fade" id="modalEditarDiaPonto" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content border-0 shadow-lg" style="border-radius:16px;">
@@ -617,6 +617,7 @@
                           <option value="ATESTADO_PARCIAL">Atestado Parcial (Horas)</option>
                           <option value="FERIAS">Férias</option>
                           <option value="FOLGA">Folga</option>
+                          <option value="FOLGA_BH">Folga BH [Banco de Horas]</option>
                       </select>
                   </div>
 
@@ -641,7 +642,7 @@
                       </div>
                   </div>
 
-                  <!-- SELETOR DE PERÍODO (EXIBIDO AUTOMATICAMENTE PARA FOLGA, FÉRIAS OU ATESTADO) -->
+                  <!-- SELETOR DE PERÍODO (EXIBIDO AUTOMATICAMENTE PARA FOLGA, FOLGA BH, FÉRIAS OU ATESTADO) -->
                   <div id="containerPeriodoStatus" class="p-3 bg-light border border-primary-subtle rounded mb-3" style="display: none;">
                       <span class="text-primary small fw-bold d-block mb-2">📅 Selecione o Período Completo:</span>
                       <div class="row g-2">
@@ -720,9 +721,9 @@
             }
         }
 
-        // Controle do Período (Férias, Folga, Atestado Integral)
+        // Controle do Período (Férias, Folga, Folga BH, Atestado Integral)
         if (boxPeriodo) {
-            if (['FERIAS', 'FOLGA', 'ATESTADO'].includes(status)) {
+            if (['FERIAS', 'FOLGA', 'FOLGA_BH', 'ATESTADO'].includes(status)) {
                 boxPeriodo.style.display = 'block';
             } else {
                 boxPeriodo.style.display = 'none';
@@ -731,7 +732,7 @@
 
         // Controle dos Campos de Horários Tradicionais
         if (boxHorarios) {
-            if (['FERIAS', 'FOLGA', 'ATESTADO'].includes(status)) {
+            if (['FERIAS', 'FOLGA', 'FOLGA_BH', 'ATESTADO'].includes(status)) {
                 boxHorarios.style.display = 'none';
             } else {
                 boxHorarios.style.display = 'flex';
