@@ -510,7 +510,7 @@ function aplicarFiltroRapido(tipo) {
     filtrarRelatorioTela();
 }
 
-// Limpa filtros selecionados e redefine o estado das tabelas
+// 1. Limpar Tudo / Iniciar: Zera filtros e volta para selecionar colaborador
 function limparFiltrosRelatorio() {
     const selectColab = document.getElementById('filtroRelatorioColaborador');
     const inputInicio = document.getElementById('filtroRelatorioInicio');
@@ -529,6 +529,22 @@ function limparFiltrosRelatorio() {
     }
     if (tabelaGerencialBody) {
         tabelaGerencialBody.innerHTML = `<tr><td colspan="6" class="text-center text-muted small py-4">⚠️ Por favor, selecione um colaborador específico para carregar o relatório.</td></tr>`;
+    }
+}
+
+// 2. Limpar Seleção: Mantém o colaborador e limpa apenas as datas, recarregando todos os meses
+function limparSelecaoFiltros() {
+    const inputInicio = document.getElementById('filtroRelatorioInicio');
+    const inputFim = document.getElementById('filtroRelatorioFim');
+    const inputMesRapido = document.getElementById('filtroMesRapido');
+    const selectColab = document.getElementById('filtroRelatorioColaborador');
+
+    if (inputInicio) inputInicio.value = "";
+    if (inputFim) inputFim.value = "";
+    if (inputMesRapido) inputMesRapido.value = "";
+
+    if (selectColab && selectColab.value !== "todos") {
+        filtrarRelatorioTela();
     }
 }
 
