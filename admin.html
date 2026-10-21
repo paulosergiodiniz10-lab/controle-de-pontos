@@ -378,7 +378,8 @@
 
                         <div class="ms-auto d-flex flex-wrap gap-2">
                             <button type="button" id="btnFiltrarTela" class="btn btn-outline-secondary btn-sm px-3" onclick="filtrarRelatorioTela()">🔍 Filtrar na Tela</button>
-                            <button type="button" id="btnLimparFiltros" class="btn btn-outline-danger btn-sm px-3" onclick="limparFiltrosRelatorio()">🧹 Limpar</button>
+                            <button type="button" id="btnLimparSelecao" class="btn btn-outline-warning btn-sm px-3 fw-medium" onclick="limparSelecaoFiltros()" title="Limpa datas e filtros mantendo o colaborador selecionado">🔄 Limpar Seleção</button>
+                            <button type="button" id="btnLimparTudo" class="btn btn-outline-danger btn-sm px-3 fw-medium" onclick="limparFiltrosRelatorio()" title="Zera tudo e volta para selecionar colaborador">🧹 Limpar / Iniciar</button>
                             <button type="button" class="btn btn-primary btn-sm px-3 fw-semibold" onclick="exportarExcelGerencial()">📑 Exportar Excel Gerencial</button>
                             <button type="button" class="btn btn-success btn-sm px-3 fw-semibold" onclick="exportarPontosExcel()">📊 Baixar Excel Colorido</button>
                         </div>
@@ -814,7 +815,7 @@
         }
     }
 
-    // Alternador com estilo visual leve e elegante
+    // Alternador com estilo visual leve e destravamento automático de datas no Resumo Gerencial
     function alternarModoVisualizacao(modo) {
         const btnDetalhado = document.getElementById('btnModoDetalhado');
         const btnGerencial = document.getElementById('btnModoGerencial');
@@ -829,6 +830,11 @@
             boxDetalhado.style.display = 'none';
             boxGerencial.style.display = 'block';
             legenda.innerText = 'Exibindo Resumo Gerencial Mensal com apuração acumulada de Banco de Horas';
+
+            // Ao entrar na aba Gerencial, limpa as datas travadas e traz o histórico geral de todos os meses
+            if (typeof limparSelecaoFiltros === 'function') {
+                limparSelecaoFiltros();
+            }
         } else {
             btnGerencial.classList.remove('active');
             btnDetalhado.classList.add('active');
