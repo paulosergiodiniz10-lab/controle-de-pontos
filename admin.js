@@ -1095,6 +1095,47 @@ async function salvarAjusteHorariosDia(event) {
     }
 }
 
+// Consolidação mensal cumulativa para o Resumo Gerencial
+function consolidarPorMes(dadosConsolidados) {
+    const mapaMeses = {};
+    const mesesExtenso = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+
+    dadosConsolidados.forEach(r => {
+        if (!r.data || !r.data.includes('/')) return;
+        const p = r.data.split('/');
+        if (p.length !== 3) return;
+
+        const chaveMes = `${p[2]}-${p[1]}`;
+        const mesIndex = parseInt(p[1], 10) - 1;
+        const rotuloMes = `${mesesExtenso[mesIndex] || p[1]}/${p[2]}`;
+
+        if (!mapaMeses[chaveMes]) {
+            mapaMeses[chaveMes] = {
+                chave: chaveMes,
+                rotulo: rotuloMes,
+                colaborador: r.nome,
+                minutosTrabalhadosNum: 0,
+                minutosEsperadosNum: 0,
+                minutosExtrasNum: 0,
+                minutosFolgaBhNum: 0
+            };
+        }
+
+        mapaMeses[chaveMes].minutosTrabalhadosNum += (r.minutosTrabalhadosNum || 0);
+        mapaMeses[chaveMes].minutosEsperadosNum += (r.minutosEsperadosNum || 0);
+        mapaMeses[chaveMes].minutosFolgaBhNum += (r.minutosFolgaBhNum || 0);
+    });
+
+    const listaMeses = Object.values(mapaMeses).sort((a, b) => a.chave.localeCompare(b.chave));
+    listaMeses.forEach(m => {
+        const saldoTrabalho = m.minutosTrabalhadosNum - m.minutosEsperadosNum;
+        m.saldoTrabalhoNum = saldoTrabalho;
+        m.resultadoGeralNum = saldoTrabalho - m.minutosFolgaBhNum;
+    });
+
+    return listaMeses;
+}
+
 async function filtrarRelatorioTela() {
     const filtroColab = document.getElementById('filtroRelatorioColaborador').value;
     const filtroInicio = document.getElementById('filtroRelatorioInicio').value;
@@ -1217,56 +1258,19 @@ async function filtrarRelatorioTela() {
             </td>
         `;
         tabelaBody.appendChild(tr);
-
-        // Preenchimento da Tabela Gerencial (Visualização Opção B na Tela)
-        if (tabelaGerencialBody) {
-            const minFolgaBhDia = (r.minutosFolgaBhNum || 0);
-            let strFolgaBhDia = "-";
-            if (minFolgaBhDia > 0) {
-                strFolgaBhDia = formatarMinutosParaString(minFolgaBhDia);
-                if (r.statusDia === "FOLGA_BH_PARCIAL" && r.horaInicioBh && r.horaFimBh) {
-                    strFolgaBhDia += ` (${r.horaInicioBh}-${r.horaFimBh})`;
-                }
-            }
-
-            const saldoDiaMin = (r.minutosExtrasNum || 0) - minFolgaBhDia;
-            let strResultadoDia = "00:00";
-            let corResultadoDia = "text-secondary";
-            if (saldoDiaMin > 0) {
-                strResultadoDia = `+${formatarMinutosParaString(saldoDiaMin)}`;
-                corResultadoDia = "text-success";
-            } else if (saldoDiaMin < 0) {
-                strResultadoDia = `-${formatarMinutosParaString(Math.abs(saldoDiaMin))}`;
-                corResultadoDia = "text-danger";
-            }
-
-            const trG = document.createElement('tr');
-            if (r.isDomingo || (r.statusDia && r.statusDia !== "NORMAL")) {
-                trG.setAttribute('style', 'background-color: #f8fafc;');
-            }
-            trG.innerHTML = `
-                <td><strong>${r.data}</strong>${tagStatusHtml}</td>
-                <td>${r.nome}</td>
-                <td class="text-center fw-bold text-dark">${r.horasTrabalhadas || '00:00'}</td>
-                <td class="text-center fw-bold ${r.classeCorExtra || ''}">${r.horasExtras || '00:00'}</td>
-                <td class="text-center fw-bold text-danger">${strFolgaBhDia}</td>
-                <td class="text-center fw-bold ${corResultadoDia}">${strResultadoDia}</td>
-            `;
-            tabelaGerencialBody.appendChild(trG);
-        }
     });
 
     const saldoFinal = acumuladorTrabalhadas - acumuladorEsperadas;
     const saldoAbsoluto = Math.abs(saldoFinal);
     const strSaldo = formatarMinutosParaString(saldoAbsoluto);
 
-    let htmlSaldo = "";
+    let htmlSaldoExtras = "";
     if (saldoFinal > 0) {
-        htmlSaldo = `<span style="color: #16a34a; font-weight: 900; font-size: 1.05rem;">+ ${strSaldo} (Horas Extras Reais)</span>`;
+        htmlSaldoExtras = `<span style="color: #16a34a; font-weight: 900; font-size: 1.05rem;">+ ${strSaldo} (Horas Extras Reais)</span>`;
     } else if (saldoFinal < 0) {
-        htmlSaldo = `<span style="color: #ef4444; font-weight: 900; font-size: 1.05rem;">- ${strSaldo} (Horas Faltantes)</span>`;
+        htmlSaldoExtras = `<span style="color: #ef4444; font-weight: 900; font-size: 1.05rem;">- ${strSaldo} (Horas Faltantes)</span>`;
     } else {
-        htmlSaldo = `<span style="color: #64748b; font-weight: 900; font-size: 1.05rem;">00:00 (Zerado)</span>`;
+        htmlSaldoExtras = `<span style="color: #64748b; font-weight: 900; font-size: 1.05rem;">00:00 (Zerado)</span>`;
     }
 
     // Cálculo do Resultado Geral descontando as Folgas BH do saldo
@@ -1290,8 +1294,8 @@ async function filtrarRelatorioTela() {
             <div style="font-size: 0.95rem; line-height: 1.9;">
                 <span class="text-secondary fw-bold text-uppercase me-2">Carga Esperada do Período:</span> <span class="fw-bold text-dark fs-6">${formatarMinutosParaString(acumuladorEsperadas)}</span><br>
                 <span class="text-secondary fw-bold text-uppercase me-2">Total Realizado:</span> <span class="fw-bold text-dark fs-6">${formatarMinutosParaString(acumuladorTrabalhadas)}</span><br>
-                <span class="text-secondary fw-bold text-uppercase me-2">Saldo Final:</span> ${htmlSaldo}<br>
-                <span class="text-danger fw-bold text-uppercase me-2">Folga BH:</span> <span class="fw-bold text-danger fs-6">- ${formatarMinutosParaString(acumuladorFolgaBh)} (Descontado do Banco)</span><br>
+                <span class="text-secondary fw-bold text-uppercase me-2">Saldo Horas Extras:</span> ${htmlSaldoExtras}<br>
+                <span class="text-danger fw-bold text-uppercase me-2">Saldo BH [Integral e Parcial]:</span> <span class="fw-bold text-danger fs-6">- ${formatarMinutosParaString(acumuladorFolgaBh)} (Descontado do Banco)</span><br>
                 <div class="mt-2 pt-2 border-top">
                     <span class="text-dark fw-extrabold text-uppercase me-2" style="font-size: 1.15rem;">Resultado Geral:</span> ${htmlResultadoGeral}
                 </div>
@@ -1300,23 +1304,81 @@ async function filtrarRelatorioTela() {
     `;
     tabelaBody.appendChild(trTotal);
 
-    // Rodapé de fechamento da Tabela Gerencial na Tela
+    // PREENCHIMENTO DA TABELA RESUMO GERENCIAL MENSAL (CUMULATIVO)
     if (tabelaGerencialBody) {
+        const dadosMensais = consolidarPorMes(dadosConsolidados);
         const user = bancoUsuarios.find(u => String(u.id) === String(filtroColab)) || {};
         const colabNome = user.nome || dadosConsolidados[0].nome;
         const colabCpf = user.cpf || "-";
+
+        let acumuladorGeralTrab = 0;
+        let acumuladorGeralBh = 0;
+        let acumuladorGeralResultado = 0;
+
+        dadosMensais.forEach(m => {
+            acumuladorGeralTrab += m.minutosTrabalhadosNum;
+            acumuladorGeralBh += m.minutosFolgaBhNum;
+            acumuladorGeralResultado += m.resultadoGeralNum;
+
+            const strTrabMes = formatarMinutosParaString(m.minutosTrabalhadosNum);
+            
+            // Horas extras do mês
+            let strExtraMes = "00:00";
+            let corExtraMes = "text-secondary";
+            if (m.saldoTrabalhoNum > 0) {
+                strExtraMes = `+${formatarMinutosParaString(m.saldoTrabalhoNum)}`;
+                corExtraMes = "text-success";
+            } else if (m.saldoTrabalhoNum < 0) {
+                strExtraMes = `-${formatarMinutosParaString(Math.abs(m.saldoTrabalhoNum))}`;
+                corExtraMes = "text-danger";
+            }
+
+            // Folga BH do mês
+            const strBhMes = m.minutosFolgaBhNum > 0 ? `- ${formatarMinutosParaString(m.minutosFolgaBhNum)}` : "-";
+
+            // Resultado do mês
+            let strResMes = "00:00";
+            let corResMes = "text-secondary";
+            if (m.resultadoGeralNum > 0) {
+                strResMes = `+${formatarMinutosParaString(m.resultadoGeralNum)}`;
+                corResMes = "text-success";
+            } else if (m.resultadoGeralNum < 0) {
+                strResMes = `-${formatarMinutosParaString(Math.abs(m.resultadoGeralNum))}`;
+                corResMes = "text-danger";
+            }
+
+            const trM = document.createElement('tr');
+            trM.innerHTML = `
+                <td><strong class="text-primary">${m.rotulo}</strong></td>
+                <td>${m.colaborador}</td>
+                <td class="text-center fw-bold text-dark">${strTrabMes}</td>
+                <td class="text-center fw-bold ${corExtraMes}">${strExtraMes}</td>
+                <td class="text-center fw-bold text-danger">${strBhMes}</td>
+                <td class="text-center fw-bold ${corResMes}">${strResMes}</td>
+            `;
+            tabelaGerencialBody.appendChild(trM);
+        });
+
+        // Rodapé de fechamento do Resumo Gerencial Mensal
+        const strResGeralAbs = formatarMinutosParaString(Math.abs(acumuladorGeralResultado));
+        let htmlResGeralMensal = "";
+        if (acumuladorGeralResultado > 0) {
+            htmlResGeralMensal = `<span style="color: #16a34a; font-weight: 900; font-size: 1.15rem;">+ ${strResGeralAbs} (Saldo Positivo Geral)</span>`;
+        } else if (acumuladorGeralResultado < 0) {
+            htmlResGeralMensal = `<span style="color: #ef4444; font-weight: 900; font-size: 1.15rem;">- ${strResGeralAbs} (Saldo Devedor Geral)</span>`;
+        } else {
+            htmlResGeralMensal = `<span style="color: #64748b; font-weight: 900; font-size: 1.15rem;">00:00 (Quitado)</span>`;
+        }
 
         const trTotalGerencial = document.createElement('tr');
         trTotalGerencial.style.backgroundColor = "#f8fafc";
         trTotalGerencial.innerHTML = `
             <td colspan="6" class="p-4 border-top">
                 <div class="d-flex flex-column align-items-end" style="font-size: 0.95rem; line-height: 1.9;">
-                    <div><span class="text-secondary fw-bold text-uppercase me-2">Carga Esperada do Período:</span> <span class="fw-bold text-dark">${formatarMinutosParaString(acumuladorEsperadas)}</span></div>
-                    <div><span class="text-secondary fw-bold text-uppercase me-2">Total Realizado:</span> <span class="fw-bold text-dark">${formatarMinutosParaString(acumuladorTrabalhadas)}</span></div>
-                    <div><span class="text-secondary fw-bold text-uppercase me-2">Saldo Final:</span> ${htmlSaldo}</div>
-                    <div><span class="text-danger fw-bold text-uppercase me-2">Folga BH:</span> <span class="fw-bold text-danger">- ${formatarMinutosParaString(acumuladorFolgaBh)} (Descontado)</span></div>
+                    <div><span class="text-secondary fw-bold text-uppercase me-2">Total de Horas Trabalhadas:</span> <span class="fw-bold text-dark fs-6">${formatarMinutosParaString(acumuladorGeralTrab)}</span></div>
+                    <div><span class="text-danger fw-bold text-uppercase me-2">Total Banco de Horas Compensado:</span> <span class="fw-bold text-danger fs-6">- ${formatarMinutosParaString(acumuladorGeralBh)}</span></div>
                     <div class="mt-2 pt-2 border-top w-100 text-end">
-                        <span class="text-dark fw-extrabold text-uppercase me-2" style="font-size: 1.1rem;">Resultado Geral:</span> ${htmlResultadoGeral}
+                        <span class="text-dark fw-extrabold text-uppercase me-2" style="font-size: 1.15rem;">Resultado Geral Cumulativo:</span> ${htmlResGeralMensal}
                     </div>
                 </div>
                 <div class="text-center mt-5 pt-3">
@@ -1481,10 +1543,10 @@ async function exportarPontosExcel() {
     matrizPlanilha.push(["TOTAL REALIZADO:", "", "", "", "", "", formatarMinutosParaString(somaTrab), "", ""]);
 
     const idxSaldo = matrizPlanilha.length;
-    matrizPlanilha.push(["SALDO FINAL:", "", "", "", "", "", textoSaldo, "", ""]);
+    matrizPlanilha.push(["SALDO HORAS EXTRAS:", "", "", "", "", "", textoSaldo, "", ""]);
 
     const idxFolgaBh = matrizPlanilha.length;
-    matrizPlanilha.push(["FOLGA BH:", "", "", "", "", "", `- ${formatarMinutosParaString(somaFolgaBh)} (Descontado)`, "", ""]);
+    matrizPlanilha.push(["SALDO BH [INTEGRAL E PARCIAL]:", "", "", "", "", "", `- ${formatarMinutosParaString(somaFolgaBh)} (Descontado)`, "", ""]);
 
     const idxResultadoGeral = matrizPlanilha.length;
     matrizPlanilha.push(["RESULTADO GERAL:", "", "", "", "", "", textoResultadoGeral, "", ""]);
@@ -1720,13 +1782,7 @@ async function exportarExcelGerencial() {
         return;
     }
 
-    dadosRelatorio.sort((a,b) => {
-        if (!a.data || !b.data) return 0;
-        const pa = a.data.split('/');
-        const pb = b.data.split('/');
-        if(pa.length !== 3 || pb.length !== 3) return 0;
-        return new Date(pa[2], pa[1]-1, pa[0]) - new Date(pb[2], pb[1]-1, pb[0]);
-    });
+    const dadosMensais = consolidarPorMes(dadosRelatorio);
 
     const user = bancoUsuarios.find(u => String(u.id) === String(filtroColab)) || {};
     const colabNome = user.nome || dadosRelatorio[0].nome;
@@ -1737,77 +1793,63 @@ async function exportarExcelGerencial() {
     const dataEmissao = new Date().toLocaleDateString('pt-BR');
 
     const matrizGerencial = [
-        ["RELATÓRIO GERENCIAL DE HORAS E BANCO DE HORAS"],
+        ["RELATÓRIO GERENCIAL MENSAL - BANCO DE HORAS"],
         [],
         ["EMPRESA:", nomeEmpresa, "", "CNPJ:", cnpjEmpresa, ""],
         ["COLABORADOR:", colabNome, "", "CPF:", colabCpf, ""],
         ["CARGO / FUNÇÃO:", colabCargo, "", "EMISSÃO:", dataEmissao, ""],
         [],
-        ["Data", "Colaborador", "Horas Trab.", "Horas Extras", "Folga BH", "Resultado"]
+        ["Mês / Ano", "Colaborador", "Horas Trab.", "Horas Extras", "Folga BH", "Resultado"]
     ];
 
-    let somaTrab = 0;
-    let somaEsperada = 0;
-    let somaFolgaBh = 0;
+    let somaGeralTrab = 0;
+    let somaGeralBh = 0;
+    let somaGeralResultado = 0;
 
-    dadosRelatorio.forEach(r => {
-        somaTrab += (r.minutosTrabalhadosNum || 0);
-        somaEsperada += (r.minutosEsperadosNum || 0);
+    dadosMensais.forEach(m => {
+        somaGeralTrab += m.minutosTrabalhadosNum;
+        somaGeralBh += m.minutosFolgaBhNum;
+        somaGeralResultado += m.resultadoGeralNum;
 
-        const minFolgaBhDia = (r.minutosFolgaBhNum || 0);
-        somaFolgaBh += minFolgaBhDia;
+        const strTrab = formatarMinutosParaString(m.minutosTrabalhadosNum);
+        
+        let strExtra = "00:00";
+        if (m.saldoTrabalhoNum > 0) strExtra = `+${formatarMinutosParaString(m.saldoTrabalhoNum)}`;
+        else if (m.saldoTrabalhoNum < 0) strExtra = `-${formatarMinutosParaString(Math.abs(m.saldoTrabalhoNum))}`;
 
-        let strFolgaBhDia = "-";
-        if (minFolgaBhDia > 0) {
-            strFolgaBhDia = formatarMinutosParaString(minFolgaBhDia);
-            if (r.statusDia === "FOLGA_BH_PARCIAL" && r.horaInicioBh && r.horaFimBh) {
-                strFolgaBhDia += ` (${r.horaInicioBh}-${r.horaFimBh})`;
-            }
-        }
+        const strBh = m.minutosFolgaBhNum > 0 ? `- ${formatarMinutosParaString(m.minutosFolgaBhNum)}` : "-";
 
-        const saldoDiaMin = (r.minutosExtrasNum || 0) - minFolgaBhDia;
-        let strResultadoDia = "00:00";
-        if (saldoDiaMin > 0) strResultadoDia = `+${formatarMinutosParaString(saldoDiaMin)}`;
-        else if (saldoDiaMin < 0) strResultadoDia = `-${formatarMinutosParaString(Math.abs(saldoDiaMin))}`;
-
-        let tagDia = "";
-        if (r.statusDia === "FOLGA_BH") tagDia = " (FOLGA BH)";
-        else if (r.statusDia === "FOLGA_BH_PARCIAL") tagDia = " (FOLGA BH PARCIAL)";
-        else if (r.statusDia && r.statusDia !== "NORMAL" && r.statusDia !== "EDITADO") tagDia = ` (${r.statusDia})`;
-        else if (r.isDomingo) tagDia = " (DOM)";
+        let strRes = "00:00";
+        if (m.resultadoGeralNum > 0) strRes = `+${formatarMinutosParaString(m.resultadoGeralNum)}`;
+        else if (m.resultadoGeralNum < 0) strRes = `-${formatarMinutosParaString(Math.abs(m.resultadoGeralNum))}`;
 
         matrizGerencial.push([
-            `${r.data}${tagDia}`,
-            r.nome,
-            r.horasTrabalhadas || "00:00",
-            r.horasExtras || "00:00",
-            strFolgaBhDia,
-            strResultadoDia
+            m.rotulo,
+            m.colaborador,
+            strTrab,
+            strExtra,
+            strBh,
+            strRes
         ]);
     });
 
-    const saldoPeriodo = somaTrab - somaEsperada;
-    const resultadoGeralMin = saldoPeriodo - somaFolgaBh;
-    const strResultadoGeral = formatarMinutosParaString(Math.abs(resultadoGeralMin));
+    const strResultadoGeralAbs = formatarMinutosParaString(Math.abs(somaGeralResultado));
     let textoResultadoGeral = "00:00 (Quitado)";
-    if (resultadoGeralMin > 0) textoResultadoGeral = `+ ${strResultadoGeral} (Saldo Positivo)`;
-    else if (resultadoGeralMin < 0) textoResultadoGeral = `- ${strResultadoGeral} (Saldo Devedor)`;
+    if (somaGeralResultado > 0) textoResultadoGeral = `+ ${strResultadoGeralAbs} (Saldo Positivo)`;
+    else if (somaGeralResultado < 0) textoResultadoGeral = `- ${strResultadoGeralAbs} (Saldo Devedor)`;
 
     matrizGerencial.push([]);
     const idxTitle = matrizGerencial.length;
-    matrizGerencial.push(["RESUMO DO PERÍODO", "", "", "", "", ""]);
-
-    const idxCarga = matrizGerencial.length;
-    matrizGerencial.push(["CARGA ESPERADA DO PERÍODO:", "", "", "", formatarMinutosParaString(somaEsperada), ""]);
+    matrizGerencial.push(["RESUMO GERAL CUMULATIVO", "", "", "", "", ""]);
 
     const idxTrab = matrizGerencial.length;
-    matrizGerencial.push(["TOTAL REALIZADO:", "", "", "", formatarMinutosParaString(somaTrab), ""]);
+    matrizGerencial.push(["TOTAL DE HORAS TRABALHADAS:", "", "", "", formatarMinutosParaString(somaGeralTrab), ""]);
 
     const idxFolgaBh = matrizGerencial.length;
-    matrizGerencial.push(["FOLGA BH COMPENSADA:", "", "", "", `- ${formatarMinutosParaString(somaFolgaBh)}`, ""]);
+    matrizGerencial.push(["TOTAL BANCO DE HORAS COMPENSADO:", "", "", "", `- ${formatarMinutosParaString(somaGeralBh)}`, ""]);
 
     const idxResultadoGeral = matrizGerencial.length;
-    matrizGerencial.push(["RESULTADO GERAL:", "", "", "", textoResultadoGeral, ""]);
+    matrizGerencial.push(["RESULTADO GERAL CUMULATIVO:", "", "", "", textoResultadoGeral, ""]);
 
     matrizGerencial.push([]);
     matrizGerencial.push([]);
@@ -1876,12 +1918,12 @@ async function exportarExcelGerencial() {
                     alignment: { horizontal: "center", vertical: "center" },
                     border: bordaSuave
                 };
-            } else if (R >= idxCarga && R <= idxResultadoGeral) {
+            } else if (R >= idxTrab && R <= idxResultadoGeral) {
                 if (C <= 3) {
                     cell.s = { fill: { fgColor: { rgb: "F8FAFC" } }, font: { bold: true, color: { rgb: "334155" }, size: 9.5 }, alignment: { horizontal: "right", vertical: "center" }, border: bordaSuave };
                 } else {
                     let corTexto = "0F172A";
-                    if (R === idxResultadoGeral) corTexto = resultadoGeralMin > 0 ? "059669" : (resultadoGeralMin < 0 ? "DC2626" : "0F172A");
+                    if (R === idxResultadoGeral) corTexto = somaGeralResultado > 0 ? "059669" : (somaGeralResultado < 0 ? "DC2626" : "0F172A");
                     if (R === idxFolgaBh) corTexto = "EA580C";
                     cell.s = { fill: { fgColor: { rgb: "FFFFFF" } }, font: { bold: true, color: { rgb: corTexto }, size: 10.5 }, alignment: { horizontal: "center", vertical: "center" }, border: bordaSuave };
                 }
@@ -1904,8 +1946,6 @@ async function exportarExcelGerencial() {
         { s: { r: 4, c: 1 }, e: { r: 4, c: 2 } },
         { s: { r: 4, c: 4 }, e: { r: 4, c: 5 } },
         { s: { r: idxTitle, c: 0 }, e: { r: idxTitle, c: 5 } },
-        { s: { r: idxCarga, c: 0 }, e: { r: idxCarga, c: 3 } },
-        { s: { r: idxCarga, c: 4 }, e: { r: idxCarga, c: 5 } },
         { s: { r: idxTrab, c: 0 }, e: { r: idxTrab, c: 3 } },
         { s: { r: idxTrab, c: 4 }, e: { r: idxTrab, c: 5 } },
         { s: { r: idxFolgaBh, c: 0 }, e: { r: idxFolgaBh, c: 3 } },
@@ -1916,17 +1956,17 @@ async function exportarExcelGerencial() {
     ];
 
     worksheet['!cols'] = [
-        { wch: 18 },
+        { wch: 20 },
         { wch: 32 },
         { wch: 14 },
         { wch: 14 },
-        { wch: 16 },
-        { wch: 16 }
+        { wch: 18 },
+        { wch: 18 }
     ];
 
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Resumo_Gerencial");
-    XLSX.writeFile(workbook, `Relatorio_Gerencial_${colabNome.replace(/ /g, "_")}.xlsx`);
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Resumo_Mensal_BH");
+    XLSX.writeFile(workbook, `Relatorio_Gerencial_Mensal_${colabNome.replace(/ /g, "_")}.xlsx`);
 }
 
 let idConfigNuvemAtual = null;
