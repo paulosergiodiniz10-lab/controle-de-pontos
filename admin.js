@@ -510,6 +510,28 @@ function aplicarFiltroRapido(tipo) {
     filtrarRelatorioTela();
 }
 
+// Limpa filtros selecionados e redefine o estado das tabelas
+function limparFiltrosRelatorio() {
+    const selectColab = document.getElementById('filtroRelatorioColaborador');
+    const inputInicio = document.getElementById('filtroRelatorioInicio');
+    const inputFim = document.getElementById('filtroRelatorioFim');
+    const inputMesRapido = document.getElementById('filtroMesRapido');
+    const tabelaBody = document.getElementById('tabelaRelatoriosBody');
+    const tabelaGerencialBody = document.getElementById('tabelaGerencialBody');
+
+    if (selectColab) selectColab.value = "todos";
+    if (inputInicio) inputInicio.value = "";
+    if (inputFim) inputFim.value = "";
+    if (inputMesRapido) inputMesRapido.value = "";
+
+    if (tabelaBody) {
+        tabelaBody.innerHTML = `<tr><td colspan="10" class="text-center text-muted small py-4">⚠️ Por favor, selecione um colaborador específico para carregar o relatório.</td></tr>`;
+    }
+    if (tabelaGerencialBody) {
+        tabelaGerencialBody.innerHTML = `<tr><td colspan="6" class="text-center text-muted small py-4">⚠️ Por favor, selecione um colaborador específico para carregar o relatório.</td></tr>`;
+    }
+}
+
 async function puxarLogsEFiltrar() {
     const filtroColab = document.getElementById('filtroRelatorioColaborador').value;
     const btn = document.getElementById('btnFiltrarTela');
@@ -1658,7 +1680,7 @@ async function exportarPontosExcel() {
                     alignment: { horizontal: "center", vertical: "center" },
                     border: bordaSuave
                 };
-            } else if (R >= idxCarga && R <= idxResultadoGeral) {
+            } else if (R >= idxTrab && R <= idxResultadoGeral) {
                 if (C <= 5) {
                     cell.s = {
                         fill: { fgColor: { rgb: "F8FAFC" } },
