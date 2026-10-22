@@ -686,13 +686,13 @@ function consolidarLogsBrutos(logsArray) {
                 }
             }
 
-            // 2. Folga BH Integral: desconta do banco de horas, não como falta injustificada
+            // 2. Folga BH Integral: não soma como trabalhado físico, apura débito no banco
             if (r.statusDia === "FOLGA_BH") {
                 r.minutosFolgaBhNum = cargaObrigatoriaDoDia;
                 minutosTrabalhados = 0;
             }
 
-            // 3. Folga BH Parcial (Horas): desconta do banco de horas apenas o período acordado
+            // 3. Folga BH Parcial (Horas): apura período específico do banco
             let minBhParcial = 0;
             if (r.statusDia === "FOLGA_BH_PARCIAL" || (r.horaInicioBh && r.horaFimBh)) {
                 const minIniBh = bolarTempoParaMinutos(r.horaInicioBh) || 0;
@@ -704,17 +704,18 @@ function consolidarLogsBrutos(logsArray) {
             // Apuração de Horas Extras do Dia (sem descontar a folga de banco de horas como falta)
             let diferencaDia = 0;
             if (r.statusDia === "FOLGA_BH") {
-                diferencaDia = 0; // Folga BH Integral não é falta nem hora extra diária
+                diferencaDia = 0;
             } else if (r.statusDia === "FOLGA_BH_PARCIAL" || minBhParcial > 0) {
-                // Se trabalhou + compensou BH, verifica apenas se excedeu ou faltou fora do BH
                 const tempoTotalDia = minutosTrabalhados + minBhParcial;
                 diferencaDia = tempoTotalDia - cargaObrigatoriaDoDia;
             } else {
                 diferencaDia = minutosTrabalhados - cargaObrigatoriaDoDia;
             }
 
-            if (minutosTrabalhados > 0 && cargaObrigatoriaDoDia > 0 && r.statusDia !== "FOLGA_BH") {
+            // Equalização de tolerância CLT (até 15 minutos): arredonda para a carga padrão do dia
+            if (minutosTrabalhados > 0 && cargaObrigatoriaDoDia > 0 && r.statusDia !== "FOLGA_BH" && r.statusDia !== "FOLGA_BH_PARCIAL" && minBhParcial === 0) {
                 if (Math.abs(diferencaDia) <= 15) {
+                    minutosTrabalhados = cargaObrigatoriaDoDia;
                     diferencaDia = 0;
                 }
             }
@@ -1314,6 +1315,9 @@ async function filtrarRelatorioTela() {
         htmlSaldoExtras = `<span style="color: #64748b; font-weight: 900; font-size: 1.05rem;">00:00 (Sem Extras)</span>`;
     }
 
+    // Total Realizado Integral: Horas Trabalhadas + Folga BH compensada (ex: 192:59 + 09:00 = 201:59)
+    const totalRealizadoMinutos = acumuladorTrabalhadas + acumuladorFolgaBh;
+
     // Rodapé do relatório detalhado limpo e individualizado (sem o Resultado Geral)
     const trTotal = document.createElement('tr');
     trTotal.style.backgroundColor = "#f8fafc";
@@ -1321,7 +1325,7 @@ async function filtrarRelatorioTela() {
         <td colspan="10" class="text-end pe-4 py-4 border-top">
             <div style="font-size: 0.95rem; line-height: 1.9;">
                 <span class="text-secondary fw-bold text-uppercase me-2">Carga Esperada do Período:</span> <span class="fw-bold text-dark fs-6">${formatarMinutosParaString(acumuladorEsperadas)}</span><br>
-                <span class="text-secondary fw-bold text-uppercase me-2">Total Realizado:</span> <span class="fw-bold text-dark fs-6">${formatarMinutosParaString(acumuladorTrabalhadas)}</span><br>
+                <span class="text-secondary fw-bold text-uppercase me-2">Total Realizado:</span> <span class="fw-bold text-dark fs-6">${formatarMinutosParaString(totalRealizadoMinutos)}</span><br>
                 <span class="text-secondary fw-bold text-uppercase me-2">Saldo Horas Extras:</span> ${htmlSaldoExtras}<br>
                 <span class="text-danger fw-bold text-uppercase me-2">Saldo BH [Integral e Parcial]:</span> <span class="fw-bold text-danger fs-6">- ${formatarMinutosParaString(acumuladorFolgaBh)} (Descontado do Banco)</span>
             </div>
@@ -1547,6 +1551,8 @@ async function exportarPontosExcel() {
     if (somaExtrasPositivas > 0) textoSaldo = `+ ${strSaldoExtras} (Horas Extras Reais)`;
     else textoSaldo = "00:00 (Sem Extras)";
 
+    const totalRealizadoMinutosExcel = somaTrab + somaFolgaBh;
+
     matrizPlanilha.push([]);
 
     const idxTitle = matrizPlanilha.length;
@@ -1556,7 +1562,7 @@ async function exportarPontosExcel() {
     matrizPlanilha.push(["CARGA ESPERADA DO PERÍODO:", "", "", "", "", "", formatarMinutosParaString(somaEsperada), "", ""]);
 
     const idxTrab = matrizPlanilha.length;
-    matrizPlanilha.push(["TOTAL REALIZADO:", "", "", "", "", "", formatarMinutosParaString(somaTrab), "", ""]);
+    matrizPlanilha.push(["TOTAL REALIZADO:", "", "", "", "", "", formatarMinutosParaString(totalRealizadoMinutosExcel), "", ""]);
 
     const idxSaldo = matrizPlanilha.length;
     matrizPlanilha.push(["SALDO HORAS EXTRAS:", "", "", "", "", "", textoSaldo, "", ""]);
@@ -1951,7 +1957,7 @@ async function exportarExcelGerencial() {
         { s: { r: 2, c: 4 }, e: { r: 2, c: 5 } },
         { s: { r: 3, c: 1 }, e: { r: 3, c: 2 } },
         { s: { r: 3, c: 4 }, e: { r: 3, c: 5 } },
-        { s: { r: 4, c: 1 }, e: { r: 4, c: 2 } },
+        { s: 4, c: 1 }, e: { r: 4, c: 2 } },
         { s: { r: 4, c: 4 }, e: { r: 4, c: 5 } },
         { s: { r: idxTitle, c: 0 }, e: { r: idxTitle, c: 5 } },
         { s: { r: idxTrab, c: 0 }, e: { r: idxTrab, c: 3 } },
