@@ -679,20 +679,20 @@ function consolidarLogsBrutos(logsArray) {
                 cargaObrigatoriaDoDia = minCalc !== null ? minCalc : 480;
             }
 
-            // Folga padrão, Férias, Atestado e Feriado abonam o dia (cumprido)
+            // Folga padrão abonada, Férias, Atestado e Feriado abonam o dia (cumprido)
             if (r.statusDia === "FERIADO" || r.statusDia === "FERIAS" || r.statusDia === "ATESTADO" || r.statusDia === "FOLGA") {
                 if (minutosTrabalhados < cargaObrigatoriaDoDia) {
                     minutosTrabalhados = cargaObrigatoriaDoDia;
                 }
             }
 
-            // Folga BH Integral: não soma como trabalhado e desconta o dia completo
+            // Folga BH Integral: não soma como trabalhado e desconta o dia completo do Banco de Horas
             if (r.statusDia === "FOLGA_BH") {
                 r.minutosFolgaBhNum = cargaObrigatoriaDoDia;
                 minutosTrabalhados = 0;
             }
 
-            // Folga BH Parcial (Horas): calcula apenas os minutos entre início e fim
+            // Folga BH Parcial (Horas): calcula apenas os minutos entre início e fim para descontar
             if (r.statusDia === "FOLGA_BH_PARCIAL" || (r.horaInicioBh && r.horaFimBh)) {
                 const minIniBh = bolarTempoParaMinutos(r.horaInicioBh) || 0;
                 const minFimBh = bolarTempoParaMinutos(r.horaFimBh) || 0;
@@ -702,7 +702,7 @@ function consolidarLogsBrutos(logsArray) {
 
             let diferencaDia = minutosTrabalhados - cargaObrigatoriaDoDia;
             if (r.statusDia === "FOLGA_BH") {
-                diferencaDia = 0; // O desconto é apurado na linha específica de Folga BH
+                diferencaDia = 0; // O débito fica individualizado na coluna/saldo de Folga BH
             } else if (minutosTrabalhados > 0 && cargaObrigatoriaDoDia > 0) {
                 if (Math.abs(diferencaDia) <= 15) {
                     minutosTrabalhados = cargaObrigatoriaDoDia;
@@ -1311,20 +1311,7 @@ async function filtrarRelatorioTela() {
         htmlSaldoExtras = `<span style="color: #64748b; font-weight: 900; font-size: 1.05rem;">00:00 (Zerado)</span>`;
     }
 
-    // Cálculo do Resultado Geral descontando as Folgas BH do saldo
-    const resultadoGeralMinutos = saldoFinal - acumuladorFolgaBh;
-    const resultadoGeralAbs = Math.abs(resultadoGeralMinutos);
-    const strResultadoGeral = formatarMinutosParaString(resultadoGeralAbs);
-
-    let htmlResultadoGeral = "";
-    if (resultadoGeralMinutos > 0) {
-        htmlResultadoGeral = `<span style="color: #16a34a; font-weight: 900; font-size: 1.15rem;">+ ${strResultadoGeral} (Saldo Positivo Restante)</span>`;
-    } else if (resultadoGeralMinutos < 0) {
-        htmlResultadoGeral = `<span style="color: #ef4444; font-weight: 900; font-size: 1.15rem;">- ${strResultadoGeral} (Saldo Devedor)</span>`;
-    } else {
-        htmlResultadoGeral = `<span style="color: #64748b; font-weight: 900; font-size: 1.15rem;">00:00 (Quitado)</span>`;
-    }
-
+    // Rodapé do relatório detalhado limpo e individualizado (sem o Resultado Geral)
     const trTotal = document.createElement('tr');
     trTotal.style.backgroundColor = "#f8fafc";
     trTotal.innerHTML = `
@@ -1333,10 +1320,7 @@ async function filtrarRelatorioTela() {
                 <span class="text-secondary fw-bold text-uppercase me-2">Carga Esperada do Período:</span> <span class="fw-bold text-dark fs-6">${formatarMinutosParaString(acumuladorEsperadas)}</span><br>
                 <span class="text-secondary fw-bold text-uppercase me-2">Total Realizado:</span> <span class="fw-bold text-dark fs-6">${formatarMinutosParaString(acumuladorTrabalhadas)}</span><br>
                 <span class="text-secondary fw-bold text-uppercase me-2">Saldo Horas Extras:</span> ${htmlSaldoExtras}<br>
-                <span class="text-danger fw-bold text-uppercase me-2">Saldo BH [Integral e Parcial]:</span> <span class="fw-bold text-danger fs-6">- ${formatarMinutosParaString(acumuladorFolgaBh)} (Descontado do Banco)</span><br>
-                <div class="mt-2 pt-2 border-top">
-                    <span class="text-dark fw-extrabold text-uppercase me-2" style="font-size: 1.15rem;">Resultado Geral:</span> ${htmlResultadoGeral}
-                </div>
+                <span class="text-danger fw-bold text-uppercase me-2">Saldo BH [Integral e Parcial]:</span> <span class="fw-bold text-danger fs-6">- ${formatarMinutosParaString(acumuladorFolgaBh)} (Descontado do Banco)</span>
             </div>
         </td>
     `;
@@ -1560,15 +1544,6 @@ async function exportarPontosExcel() {
     else if (saldoFinal < 0) textoSaldo = `- ${strSaldo} (Horas Faltantes)`;
     else textoSaldo = "00:00 (Zerado)";
 
-    const resultadoGeralPlanilha = saldoFinal - somaFolgaBh;
-    const resultadoGeralAbs = Math.abs(resultadoGeralPlanilha);
-    const strResultadoGeral = formatarMinutosParaString(resultadoGeralAbs);
-
-    let textoResultadoGeral = "";
-    if (resultadoGeralPlanilha > 0) textoResultadoGeral = `+ ${strResultadoGeral} (Saldo Positivo Restante)`;
-    else if (resultadoGeralPlanilha < 0) textoResultadoGeral = `- ${strResultadoGeral} (Saldo Devedor)`;
-    else textoResultadoGeral = "00:00 (Quitado)";
-
     matrizPlanilha.push([]);
 
     const idxTitle = matrizPlanilha.length;
@@ -1585,9 +1560,6 @@ async function exportarPontosExcel() {
 
     const idxFolgaBh = matrizPlanilha.length;
     matrizPlanilha.push(["SALDO BH [INTEGRAL E PARCIAL]:", "", "", "", "", "", `- ${formatarMinutosParaString(somaFolgaBh)} (Descontado)`, "", ""]);
-
-    const idxResultadoGeral = matrizPlanilha.length;
-    matrizPlanilha.push(["RESULTADO GERAL:", "", "", "", "", "", textoResultadoGeral, "", ""]);
 
     matrizPlanilha.push([]);
     matrizPlanilha.push([]);
@@ -1696,7 +1668,7 @@ async function exportarPontosExcel() {
                     alignment: { horizontal: "center", vertical: "center" },
                     border: bordaSuave
                 };
-            } else if (R >= idxTrab && R <= idxResultadoGeral) {
+            } else if (R >= idxCarga && R <= idxFolgaBh) {
                 if (C <= 5) {
                     cell.s = {
                         fill: { fgColor: { rgb: "F8FAFC" } },
@@ -1710,12 +1682,10 @@ async function exportarPontosExcel() {
                         corTexto = saldoFinal > 0 ? "059669" : (saldoFinal < 0 ? "DC2626" : "0F172A");
                     } else if (R === idxFolgaBh) {
                         corTexto = "EA580C";
-                    } else if (R === idxResultadoGeral) {
-                        corTexto = resultadoGeralPlanilha > 0 ? "059669" : (resultadoGeralPlanilha < 0 ? "DC2626" : "0F172A");
                     }
                     cell.s = {
                         fill: { fgColor: { rgb: "FFFFFF" } },
-                        font: { bold: true, color: { rgb: corTexto }, size: R === idxResultadoGeral ? 11 : 10 },
+                        font: { bold: true, color: { rgb: corTexto }, size: 10 },
                         alignment: { horizontal: "center", vertical: "center" },
                         border: bordaSuave
                     };
@@ -1758,8 +1728,6 @@ async function exportarPontosExcel() {
         { s: { r: idxSaldo, c: 6 }, e: { r: idxSaldo, c: 8 } }, 
         { s: { r: idxFolgaBh, c: 0 }, e: { r: idxFolgaBh, c: 5 } }, 
         { s: { r: idxFolgaBh, c: 6 }, e: { r: idxFolgaBh, c: 8 } }, 
-        { s: { r: idxResultadoGeral, c: 0 }, e: { r: idxResultadoGeral, c: 5 } }, 
-        { s: { r: idxResultadoGeral, c: 6 }, e: { r: idxResultadoGeral, c: 8 } }, 
         { s: { r: idxDeclaracao, c: 0 }, e: { r: idxDeclaracao, c: 8 } }, 
         { s: { r: idxLinhaAssinatura, c: 2 }, e: { r: idxLinhaAssinatura, c: 6 } }
     ];
