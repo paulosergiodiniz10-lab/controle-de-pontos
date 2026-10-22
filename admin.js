@@ -679,40 +679,51 @@ function consolidarLogsBrutos(logsArray) {
                 cargaObrigatoriaDoDia = minCalc !== null ? minCalc : 480;
             }
 
-            // Folga padrão abonada, Férias, Atestado e Feriado abonam o dia (cumprido)
+            // 1. Folga padrão abonada, Férias, Atestado e Feriado abonam o dia (cumprido)
             if (r.statusDia === "FERIADO" || r.statusDia === "FERIAS" || r.statusDia === "ATESTADO" || r.statusDia === "FOLGA") {
                 if (minutosTrabalhados < cargaObrigatoriaDoDia) {
                     minutosTrabalhados = cargaObrigatoriaDoDia;
                 }
             }
 
-            // Folga BH Integral: não soma como trabalhado e desconta o dia completo do Banco de Horas
+            // 2. Folga BH Integral: desconta do banco de horas, não como falta injustificada
             if (r.statusDia === "FOLGA_BH") {
                 r.minutosFolgaBhNum = cargaObrigatoriaDoDia;
                 minutosTrabalhados = 0;
             }
 
-            // Folga BH Parcial (Horas): calcula apenas os minutos entre início e fim para descontar
+            // 3. Folga BH Parcial (Horas): desconta do banco de horas apenas o período acordado
+            let minBhParcial = 0;
             if (r.statusDia === "FOLGA_BH_PARCIAL" || (r.horaInicioBh && r.horaFimBh)) {
                 const minIniBh = bolarTempoParaMinutos(r.horaInicioBh) || 0;
                 const minFimBh = bolarTempoParaMinutos(r.horaFimBh) || 0;
-                const minBhParcial = Math.max(0, minFimBh - minIniBh);
+                minBhParcial = Math.max(0, minFimBh - minIniBh);
                 r.minutosFolgaBhNum = minBhParcial;
             }
 
-            let diferencaDia = minutosTrabalhados - cargaObrigatoriaDoDia;
+            // Apuração de Horas Extras do Dia (sem descontar a folga de banco de horas como falta)
+            let diferencaDia = 0;
             if (r.statusDia === "FOLGA_BH") {
-                diferencaDia = 0; // O débito fica individualizado na coluna/saldo de Folga BH
-            } else if (minutosTrabalhados > 0 && cargaObrigatoriaDoDia > 0) {
+                diferencaDia = 0; // Folga BH Integral não é falta nem hora extra diária
+            } else if (r.statusDia === "FOLGA_BH_PARCIAL" || minBhParcial > 0) {
+                // Se trabalhou + compensou BH, verifica apenas se excedeu ou faltou fora do BH
+                const tempoTotalDia = minutosTrabalhados + minBhParcial;
+                diferencaDia = tempoTotalDia - cargaObrigatoriaDoDia;
+            } else {
+                diferencaDia = minutosTrabalhados - cargaObrigatoriaDoDia;
+            }
+
+            if (minutosTrabalhados > 0 && cargaObrigatoriaDoDia > 0 && r.statusDia !== "FOLGA_BH") {
                 if (Math.abs(diferencaDia) <= 15) {
-                    minutosTrabalhados = cargaObrigatoriaDoDia;
                     diferencaDia = 0;
                 }
             }
+
             r.minutosTrabalhadosNum = minutosTrabalhados;
             r.horasTrabalhadas = formatarMinutosParaString(minutosTrabalhados);
             r.minutosEsperadosNum = cargaObrigatoriaDoDia;
             r.minutosExtrasNum = diferencaDia;
+
             if (diferencaDia > 0) {
                 r.horasExtras = `+${formatarMinutosParaString(diferencaDia)}`;
                 r.classeCorExtra = "text-success";
@@ -770,21 +781,7 @@ function preencherCalendarioCompleto(dadosConsolidados, dataInicioStr, dataFimSt
             if (reg.statusDia === "FOLGA_BH") {
                 reg.horasExtras = "00:00";
                 reg.classeCorExtra = "text-secondary";
-            } else {
-                const saldo = (reg.minutosTrabalhadosNum || 0) - (reg.minutosEsperadosNum || 0);
-                reg.minutosExtrasNum = saldo;
-                if (saldo < 0) {
-                    reg.horasExtras = `-${formatarMinutosParaString(Math.abs(saldo))}`;
-                    reg.classeCorExtra = "text-danger";
-                } else if (saldo > 0) {
-                    reg.horasExtras = formatarMinutosParaString(saldo);
-                    reg.classeCorExtra = "text-success";
-                } else {
-                    reg.horasExtras = "00:00";
-                    reg.classeCorExtra = "text-secondary";
-                }
             }
-
             listaCompleta.push(reg);
         } else {
             let cargaObrigatoria = 0;
@@ -1154,7 +1151,7 @@ function consolidarPorMes(dadosConsolidados) {
                 colaborador: r.nome,
                 minutosTrabalhadosNum: 0,
                 minutosEsperadosNum: 0,
-                minutosExtrasNum: 0,
+                minutosExtrasPositivosNum: 0,
                 minutosFolgaBhNum: 0
             };
         }
@@ -1162,13 +1159,14 @@ function consolidarPorMes(dadosConsolidados) {
         mapaMeses[chaveMes].minutosTrabalhadosNum += (r.minutosTrabalhadosNum || 0);
         mapaMeses[chaveMes].minutosEsperadosNum += (r.minutosEsperadosNum || 0);
         mapaMeses[chaveMes].minutosFolgaBhNum += (r.minutosFolgaBhNum || 0);
+        if (r.minutosExtrasNum && r.minutosExtrasNum > 0) {
+            mapaMeses[chaveMes].minutosExtrasPositivosNum += r.minutosExtrasNum;
+        }
     });
 
     const listaMeses = Object.values(mapaMeses).sort((a, b) => a.chave.localeCompare(b.chave));
     listaMeses.forEach(m => {
-        const saldoTrabalho = m.minutosTrabalhadosNum - m.minutosEsperadosNum;
-        m.saldoTrabalhoNum = saldoTrabalho;
-        m.resultadoGeralNum = saldoTrabalho - m.minutosFolgaBhNum;
+        m.resultadoGeralNum = m.minutosExtrasPositivosNum - m.minutosFolgaBhNum;
     });
 
     return listaMeses;
@@ -1219,8 +1217,10 @@ async function filtrarRelatorioTela() {
         if (tabelaGerencialBody) tabelaGerencialBody.innerHTML = `<tr><td colspan="6" class="text-center text-muted small py-4">Nenhum registro encontrado para este colaborador no período selecionado.</td></tr>`;
         return;
     }
+
     let acumuladorTrabalhadas = 0;
     let acumuladorEsperadas = 0;
+    let acumuladorExtrasPositivas = 0;
     let acumuladorFolgaBh = 0;
 
     dadosConsolidados.sort((a,b) => {
@@ -1245,6 +1245,13 @@ async function filtrarRelatorioTela() {
 
         acumuladorTrabalhadas += r.minutosTrabalhadosNum;
         acumuladorEsperadas += r.minutosEsperadosNum;
+
+        // Soma individual de horas extras reais positivas
+        if (r.minutosExtrasNum && r.minutosExtrasNum > 0) {
+            acumuladorExtrasPositivas += r.minutosExtrasNum;
+        }
+
+        // Soma individual de Folga BH (Integral + Parcial)
         if (r.minutosFolgaBhNum) {
             acumuladorFolgaBh += r.minutosFolgaBhNum;
         }
@@ -1298,17 +1305,13 @@ async function filtrarRelatorioTela() {
         tabelaBody.appendChild(tr);
     });
 
-    const saldoFinal = acumuladorTrabalhadas - acumuladorEsperadas;
-    const saldoAbsoluto = Math.abs(saldoFinal);
-    const strSaldo = formatarMinutosParaString(saldoAbsoluto);
-
+    // Formatação do Saldo de Horas Extras Reais Positivas
+    const strSaldoExtras = formatarMinutosParaString(acumuladorExtrasPositivas);
     let htmlSaldoExtras = "";
-    if (saldoFinal > 0) {
-        htmlSaldoExtras = `<span style="color: #16a34a; font-weight: 900; font-size: 1.05rem;">+ ${strSaldo} (Horas Extras Reais)</span>`;
-    } else if (saldoFinal < 0) {
-        htmlSaldoExtras = `<span style="color: #ef4444; font-weight: 900; font-size: 1.05rem;">- ${strSaldo} (Horas Faltantes)</span>`;
+    if (acumuladorExtrasPositivas > 0) {
+        htmlSaldoExtras = `<span style="color: #16a34a; font-weight: 900; font-size: 1.05rem;">+ ${strSaldoExtras} (Horas Extras Reais)</span>`;
     } else {
-        htmlSaldoExtras = `<span style="color: #64748b; font-weight: 900; font-size: 1.05rem;">00:00 (Zerado)</span>`;
+        htmlSaldoExtras = `<span style="color: #64748b; font-weight: 900; font-size: 1.05rem;">00:00 (Sem Extras)</span>`;
     }
 
     // Rodapé do relatório detalhado limpo e individualizado (sem o Resultado Geral)
@@ -1347,18 +1350,15 @@ async function filtrarRelatorioTela() {
             // Horas extras do mês
             let strExtraMes = "00:00";
             let corExtraMes = "text-secondary";
-            if (m.saldoTrabalhoNum > 0) {
-                strExtraMes = `+${formatarMinutosParaString(m.saldoTrabalhoNum)}`;
+            if (m.minutosExtrasPositivosNum > 0) {
+                strExtraMes = `+${formatarMinutosParaString(m.minutosExtrasPositivosNum)}`;
                 corExtraMes = "text-success";
-            } else if (m.saldoTrabalhoNum < 0) {
-                strExtraMes = `-${formatarMinutosParaString(Math.abs(m.saldoTrabalhoNum))}`;
-                corExtraMes = "text-danger";
             }
 
             // Folga BH do mês
             const strBhMes = m.minutosFolgaBhNum > 0 ? `- ${formatarMinutosParaString(m.minutosFolgaBhNum)}` : "-";
 
-            // Resultado do mês
+            // Resultado do mês (Extras - Folga BH)
             let strResMes = "00:00";
             let corResMes = "text-secondary";
             if (m.resultadoGeralNum > 0) {
@@ -1491,11 +1491,17 @@ async function exportarPontosExcel() {
     ];
     let somaTrab = 0;
     let somaEsperada = 0;
+    let somaExtrasPositivas = 0;
     let somaFolgaBh = 0;
 
     dadosParaPlanilha.forEach(r => {
         somaTrab += r.minutosTrabalhadosNum;
         somaEsperada += r.minutosEsperadosNum;
+
+        if (r.minutosExtrasNum && r.minutosExtrasNum > 0) {
+            somaExtrasPositivas += r.minutosExtrasNum;
+        }
+
         if (r.minutosFolgaBhNum) {
             somaFolgaBh += r.minutosFolgaBhNum;
         }
@@ -1535,14 +1541,11 @@ async function exportarPontosExcel() {
         const dataStrExcel = `${r.data}${tagExcel}`;
         matrizPlanilha.push([dataStrExcel, r.nome, r.entrada, r.almocoIda, r.almocoVolta, r.saida, r.horasTrabalhadas, r.horasExtras, textoObsFinal]);
     });
-    const saldoFinal = somaTrab - somaEsperada;
-    const saldoAbs = Math.abs(saldoFinal);
-    const strSaldo = formatarMinutosParaString(saldoAbs);
 
+    const strSaldoExtras = formatarMinutosParaString(somaExtrasPositivas);
     let textoSaldo = "";
-    if (saldoFinal > 0) textoSaldo = `+ ${strSaldo} (Horas Extras Reais)`;
-    else if (saldoFinal < 0) textoSaldo = `- ${strSaldo} (Horas Faltantes)`;
-    else textoSaldo = "00:00 (Zerado)";
+    if (somaExtrasPositivas > 0) textoSaldo = `+ ${strSaldoExtras} (Horas Extras Reais)`;
+    else textoSaldo = "00:00 (Sem Extras)";
 
     matrizPlanilha.push([]);
 
@@ -1679,7 +1682,7 @@ async function exportarPontosExcel() {
                 } else {
                     let corTexto = "0F172A";
                     if (R === idxSaldo) {
-                        corTexto = saldoFinal > 0 ? "059669" : (saldoFinal < 0 ? "DC2626" : "0F172A");
+                        corTexto = "059669";
                     } else if (R === idxFolgaBh) {
                         corTexto = "EA580C";
                     }
@@ -1820,8 +1823,7 @@ async function exportarExcelGerencial() {
         const strTrab = formatarMinutosParaString(m.minutosTrabalhadosNum);
         
         let strExtra = "00:00";
-        if (m.saldoTrabalhoNum > 0) strExtra = `+${formatarMinutosParaString(m.saldoTrabalhoNum)}`;
-        else if (m.saldoTrabalhoNum < 0) strExtra = `-${formatarMinutosParaString(Math.abs(m.saldoTrabalhoNum))}`;
+        if (m.minutosExtrasPositivosNum > 0) strExtra = `+${formatarMinutosParaString(m.minutosExtrasPositivosNum)}`;
 
         const strBh = m.minutosFolgaBhNum > 0 ? `- ${formatarMinutosParaString(m.minutosFolgaBhNum)}` : "-";
 
