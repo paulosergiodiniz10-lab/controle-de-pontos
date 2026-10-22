@@ -1694,7 +1694,7 @@ async function exportarPontosExcel() {
                     }
                     cell.s = {
                         fill: { fgColor: { rgb: "FFFFFF" } },
-                        font: { bold: true, color: { rgb: corTexto }, size: 10 },
+                        font: { bold: true, color: { rgb: "0F172A" }, size: 10 },
                         alignment: { horizontal: "center", vertical: "center" },
                         border: bordaSuave
                     };
@@ -1957,7 +1957,7 @@ async function exportarExcelGerencial() {
         { s: { r: 2, c: 4 }, e: { r: 2, c: 5 } },
         { s: { r: 3, c: 1 }, e: { r: 3, c: 2 } },
         { s: { r: 3, c: 4 }, e: { r: 3, c: 5 } },
-        { s: 4, c: 1 }, e: { r: 4, c: 2 } },
+        { s: { r: 4, c: 1 }, e: { r: 4, c: 2 } },
         { s: { r: 4, c: 4 }, e: { r: 4, c: 5 } },
         { s: { r: idxTitle, c: 0 }, e: { r: idxTitle, c: 5 } },
         { s: { r: idxTrab, c: 0 }, e: { r: idxTrab, c: 3 } },
