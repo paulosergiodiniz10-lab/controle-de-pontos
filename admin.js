@@ -631,8 +631,13 @@ function consolidarLogsBrutos(logsArray) {
     listaFinal.forEach(r => {
         let minutosTrabalhados = 0;
         const mEntrada = bolarTempoParaMinutos(r.entrada);
-        const mAlmIda = bolarTempoParaMinutos(r.almocoIda);
-        const mAlmVolta = bolarTempoParaMinutos(r.almocoVolta);
+        
+        // Blindagem essencial: 00:00, vazio ou "-" em intervalo de almoço é nulo (não houve almoço)
+        let mAlmIda = bolarTempoParaMinutos(r.almocoIda);
+        let mAlmVolta = bolarTempoParaMinutos(r.almocoVolta);
+        if (r.almocoIda === "00:00" || r.almocoIda === "-" || r.almocoIda === "") mAlmIda = null;
+        if (r.almocoVolta === "00:00" || r.almocoVolta === "-" || r.almocoVolta === "") mAlmVolta = null;
+        
         const mSaida = bolarTempoParaMinutos(r.saida);
 
         let calcAlmIda = mAlmIda;
@@ -648,18 +653,22 @@ function consolidarLogsBrutos(logsArray) {
                 calcSaida = mAtual;
             }
         }
+
+        // Se trabalhou turno direto (sem almoço)
         if (mEntrada !== null && calcAlmIda === null && mAlmVolta === null && calcSaida !== null) {
             if (calcSaida > mEntrada) {
                 minutosTrabalhados += (calcSaida - mEntrada);
             }
         } else {
-            if(mEntrada !== null && calcAlmIda !== null && calcAlmIda > mEntrada) {
+            // Se teve saída e volta de almoço válidas
+            if (mEntrada !== null && calcAlmIda !== null && calcAlmIda > mEntrada) {
                 minutosTrabalhados += (calcAlmIda - mEntrada);
             }
-            if(mAlmVolta !== null && calcSaida !== null && calcSaida > mAlmVolta) {
+            if (mAlmVolta !== null && calcSaida !== null && calcSaida > mAlmVolta) {
                 minutosTrabalhados += (calcSaida - mAlmVolta);
             }
         }
+
         const partesData = r.data.split('/');
         if (partesData.length === 3) {
             const objetoData = new Date(partesData[2], partesData[1] - 1, partesData[0]);
@@ -696,8 +705,8 @@ function consolidarLogsBrutos(logsArray) {
 
             // 3. Folga BH Parcial (Horas): apura valor direto
             let minBhParcial = 0;
-            if (r.statusDia === "FOLGA_BH_PARCIAL" || (r.horaInicioBh && r.horaFimBh) || (r.statusDia === "FOLGA_BH_PARCIAL" && r.horasAbono)) {
-                if (r.horasAbono) {
+            if (r.statusDia === "FOLGA_BH_PARCIAL" || (r.statusDia === "FOLGA_BH_PARCIAL" && r.horasAbono)) {
+                if (r.horasAbono && r.horasAbono !== "00:00") {
                     minBhParcial = bolarTempoParaMinutos(r.horasAbono) || 0;
                 } else if (r.horaInicioBh && r.horaFimBh) {
                     const minIniBh = bolarTempoParaMinutos(r.horaInicioBh) || 0;
@@ -709,8 +718,8 @@ function consolidarLogsBrutos(logsArray) {
 
             // 4. Atestado Parcial (Horas): lê a quantidade de horas a abonar
             let minAtestadoParcial = 0;
-            if (r.statusDia === "ATESTADO_PARCIAL" || (r.horaInicioAtestado && r.horaFimAtestado) || r.horasAbono) {
-                if (r.horasAbono) {
+            if (r.statusDia === "ATESTADO_PARCIAL" || r.statusDia === "ATESTADO PARCIAL") {
+                if (r.horasAbono && r.horasAbono !== "00:00") {
                     minAtestadoParcial = bolarTempoParaMinutos(r.horasAbono) || 0;
                 } else if (r.horaInicioAtestado && r.horaFimAtestado) {
                     const minIniAt = bolarTempoParaMinutos(r.horaInicioAtestado) || 0;
@@ -936,9 +945,11 @@ window.abrirModalEditarDia = function(diaBase64) {
     }
 
     alternarCamposPorStatus();
+    
+    // Blindagem de abertura: não carrega 00:00 se não houve almoço
     document.getElementById("ajusteEntrada").value = (obj.entrada && obj.entrada !== "-") ? obj.entrada : "";
-    document.getElementById("ajusteAlmIda").value = (obj.almocoIda && obj.almocoIda !== "-") ? obj.almocoIda : "";
-    document.getElementById("ajusteAlmVolta").value = (obj.almocoVolta && obj.almocoVolta !== "-") ? obj.almocoVolta : "";
+    document.getElementById("ajusteAlmIda").value = (obj.almocoIda && obj.almocoIda !== "-" && obj.almocoIda !== "00:00") ? obj.almocoIda : "";
+    document.getElementById("ajusteAlmVolta").value = (obj.almocoVolta && obj.almocoVolta !== "-" && obj.almocoVolta !== "00:00") ? obj.almocoVolta : "";
     document.getElementById("ajusteSaida").value = (obj.saida && obj.saida !== "-") ? obj.saida : "";
 
     const campoObs = document.getElementById("ajusteObservacaoTexto");
@@ -960,9 +971,13 @@ async function salvarAjusteHorariosDia(event) {
     let statusDiaEscolhido = document.getElementById("ajusteStatusDia").value;
 
     const hEntrada = document.getElementById("ajusteEntrada").value;
-    const hAlmIda = document.getElementById("ajusteAlmIda").value;
-    const hAlmVolta = document.getElementById("ajusteAlmVolta").value;
+    let hAlmIda = document.getElementById("ajusteAlmIda").value;
+    let hAlmVolta = document.getElementById("ajusteAlmVolta").value;
     const hSaida = document.getElementById("ajusteSaida").value;
+
+    // Se o usuário deixou 00:00 no almoço, zera para não criar intervalo fantasma de madrugada
+    if (hAlmIda === "00:00") hAlmIda = "";
+    if (hAlmVolta === "00:00") hAlmVolta = "";
 
     const horasAbonoInput = document.getElementById("ajusteHorasAbono") ? document.getElementById("ajusteHorasAbono").value : "";
     const observacaoTexto = document.getElementById("ajusteObservacaoTexto") ? document.getElementById("ajusteObservacaoTexto").value.trim() : "";
@@ -1067,7 +1082,7 @@ async function salvarAjusteHorariosDia(event) {
             if ((item.hora && item.hora.trim() !== "") || (horasAbonoInput !== "")) {
                 salvouAlgumPonto = true;
                 const payloadDoc = {
-                    hora: item.hora.trim(),
+                    hora: item.hora ? item.hora.trim() : "",
                     statusDia: statusDiaEscolhido,
                     horasAbono: horasAbonoInput,
                     horaInicioAtestado: "",
