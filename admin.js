@@ -1167,7 +1167,7 @@ function consolidarPorMes(dadosConsolidados) {
 
     const listaMeses = Object.values(mapaMeses).sort((a, b) => a.chave.localeCompare(b.chave));
     listaMeses.forEach(m => {
-        m.resultadoGeralNum = m.minutosExtrasPositivosNum - m.minutosFolgaBhNum;
+        m.resultadoGeralNum = (m.minutosTrabalhadosNum + m.minutosFolgaBhNum) - m.minutosEsperadosNum;
     });
 
     return listaMeses;
@@ -1221,7 +1221,6 @@ async function filtrarRelatorioTela() {
 
     let acumuladorTrabalhadas = 0;
     let acumuladorEsperadas = 0;
-    let acumuladorExtrasPositivas = 0;
     let acumuladorFolgaBh = 0;
 
     dadosConsolidados.sort((a,b) => {
@@ -1246,11 +1245,6 @@ async function filtrarRelatorioTela() {
 
         acumuladorTrabalhadas += r.minutosTrabalhadosNum;
         acumuladorEsperadas += r.minutosEsperadosNum;
-
-        // Soma individual de horas extras reais positivas
-        if (r.minutosExtrasNum && r.minutosExtrasNum > 0) {
-            acumuladorExtrasPositivas += r.minutosExtrasNum;
-        }
 
         // Soma individual de Folga BH (Integral + Parcial)
         if (r.minutosFolgaBhNum) {
@@ -1306,19 +1300,24 @@ async function filtrarRelatorioTela() {
         tabelaBody.appendChild(tr);
     });
 
-    // Formatação do Saldo de Horas Extras Reais Positivas
-    const strSaldoExtras = formatarMinutosParaString(acumuladorExtrasPositivas);
-    let htmlSaldoExtras = "";
-    if (acumuladorExtrasPositivas > 0) {
-        htmlSaldoExtras = `<span style="color: #16a34a; font-weight: 900; font-size: 1.05rem;">+ ${strSaldoExtras} (Horas Extras Reais)</span>`;
-    } else {
-        htmlSaldoExtras = `<span style="color: #64748b; font-weight: 900; font-size: 1.05rem;">00:00 (Sem Extras)</span>`;
-    }
-
-    // Total Realizado Integral: Horas Trabalhadas + Folga BH compensada (ex: 192:59 + 09:00 = 201:59)
+    // Total Realizado: Horas Trabalhadas + Folga BH compensada (quando houver)
     const totalRealizadoMinutos = acumuladorTrabalhadas + acumuladorFolgaBh;
 
-    // Rodapé do relatório detalhado limpo e individualizado (sem o Resultado Geral)
+    // Cálculo do Resultado Real: Total Realizado - Carga Esperada
+    const saldoLiquidoMinutos = totalRealizadoMinutos - acumuladorEsperadas;
+    const saldoAbsoluto = Math.abs(saldoLiquidoMinutos);
+    const strSaldoReal = formatarMinutosParaString(saldoAbsoluto);
+
+    let htmlSaldoExtras = "";
+    if (saldoLiquidoMinutos > 0) {
+        htmlSaldoExtras = `<span style="color: #16a34a; font-weight: 900; font-size: 1.05rem;">+ ${strSaldoReal} (Horas Extras Reais)</span>`;
+    } else if (saldoLiquidoMinutos < 0) {
+        htmlSaldoExtras = `<span style="color: #ef4444; font-weight: 900; font-size: 1.05rem;">- ${strSaldoReal} (Horas Faltantes)</span>`;
+    } else {
+        htmlSaldoExtras = `<span style="color: #64748b; font-weight: 900; font-size: 1.05rem;">00:00 (Zerado)</span>`;
+    }
+
+    // Rodapé do relatório detalhado limpo e individualizado
     const trTotal = document.createElement('tr');
     trTotal.style.backgroundColor = "#f8fafc";
     trTotal.innerHTML = `
@@ -1362,7 +1361,7 @@ async function filtrarRelatorioTela() {
             // Folga BH do mês
             const strBhMes = m.minutosFolgaBhNum > 0 ? `- ${formatarMinutosParaString(m.minutosFolgaBhNum)}` : "-";
 
-            // Resultado do mês (Extras - Folga BH)
+            // Resultado do mês
             let strResMes = "00:00";
             let corResMes = "text-secondary";
             if (m.resultadoGeralNum > 0) {
@@ -1495,16 +1494,11 @@ async function exportarPontosExcel() {
     ];
     let somaTrab = 0;
     let somaEsperada = 0;
-    let somaExtrasPositivas = 0;
     let somaFolgaBh = 0;
 
     dadosParaPlanilha.forEach(r => {
         somaTrab += r.minutosTrabalhadosNum;
         somaEsperada += r.minutosEsperadosNum;
-
-        if (r.minutosExtrasNum && r.minutosExtrasNum > 0) {
-            somaExtrasPositivas += r.minutosExtrasNum;
-        }
 
         if (r.minutosFolgaBhNum) {
             somaFolgaBh += r.minutosFolgaBhNum;
@@ -1546,12 +1540,14 @@ async function exportarPontosExcel() {
         matrizPlanilha.push([dataStrExcel, r.nome, r.entrada, r.almocoIda, r.almocoVolta, r.saida, r.horasTrabalhadas, r.horasExtras, textoObsFinal]);
     });
 
-    const strSaldoExtras = formatarMinutosParaString(somaExtrasPositivas);
-    let textoSaldo = "";
-    if (somaExtrasPositivas > 0) textoSaldo = `+ ${strSaldoExtras} (Horas Extras Reais)`;
-    else textoSaldo = "00:00 (Sem Extras)";
-
     const totalRealizadoMinutosExcel = somaTrab + somaFolgaBh;
+    const saldoLiquidoExcel = totalRealizadoMinutosExcel - somaEsperada;
+    const strSaldoExcel = formatarMinutosParaString(Math.abs(saldoLiquidoExcel));
+
+    let textoSaldo = "";
+    if (saldoLiquidoExcel > 0) textoSaldo = `+ ${strSaldoExcel} (Horas Extras Reais)`;
+    else if (saldoLiquidoExcel < 0) textoSaldo = `- ${strSaldoExcel} (Horas Faltantes)`;
+    else textoSaldo = "00:00 (Zerado)";
 
     matrizPlanilha.push([]);
 
@@ -1688,13 +1684,13 @@ async function exportarPontosExcel() {
                 } else {
                     let corTexto = "0F172A";
                     if (R === idxSaldo) {
-                        corTexto = "059669";
+                        corTexto = saldoLiquidoExcel > 0 ? "059669" : (saldoLiquidoExcel < 0 ? "DC2626" : "0F172A");
                     } else if (R === idxFolgaBh) {
                         corTexto = "EA580C";
                     }
                     cell.s = {
                         fill: { fgColor: { rgb: "FFFFFF" } },
-                        font: { bold: true, color: { rgb: "0F172A" }, size: 10 },
+                        font: { bold: true, color: { rgb: corTexto }, size: 10 },
                         alignment: { horizontal: "center", vertical: "center" },
                         border: bordaSuave
                     };
