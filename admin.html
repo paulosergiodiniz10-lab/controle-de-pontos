@@ -696,19 +696,15 @@
                       <textarea id="ajusteObservacaoTexto" class="form-control form-control-sm" rows="2" placeholder="Ex: Atestado entregue, compensação de banco de horas, saída antecipada..."></textarea>
                   </div>
 
-                  <!-- CAMPOS PARA HORAS PARCIAIS (ATESTADO PARCIAL OU FOLGA BH PARCIAL) -->
+                  <!-- CAMPO SIMPLES E DIRETO: QUANTIDADE DE HORAS A ABONAR/UTILIZAR (OPÇÃO 1) -->
                   <div id="containerHorariosParciais" class="p-3 bg-light border border-primary-subtle rounded mb-3" style="display: none;">
-                      <span id="tituloHorariosParciais" class="text-primary small fw-bold d-block mb-2">⏱️ Período de Horas Utilizadas:</span>
-                      <div class="row g-2">
-                          <div class="col-6">
-                              <label for="horaInicioParcial" class="form-label small fw-medium text-muted">Hora Início</label>
-                              <input type="time" id="horaInicioParcial" class="form-control">
-                          </div>
-                          <div class="col-6">
-                              <label for="horaFimParcial" class="form-label small fw-medium text-muted">Hora Fim</label>
-                              <input type="time" id="horaFimParcial" class="form-control">
-                          </div>
+                      <label id="tituloHorariosParciais" for="ajusteHorasAbono" class="form-label small fw-bold text-primary mb-1">⏱️ Quantidade de Horas a Abonar (HH:MM):</label>
+                      <div class="input-group">
+                          <input type="time" id="ajusteHorasAbono" class="form-control border-primary fw-bold text-primary" placeholder="00:00">
                       </div>
+                      <small id="ajudaHorasAbono" class="text-muted d-block mt-1" style="font-size: 0.75rem;">
+                          * Informe quantas horas deseja abonar para completar a jornada do dia (Ex: 02:10, 02:00, 04:00).
+                      </small>
                   </div>
 
                   <!-- SELETOR DE PERÍODO (EXIBIDO PARA FÉRIAS, FOLGA INTEGRAL, FOLGA BH INTEGRAL OU ATESTADO INTEGRAL) -->
@@ -771,6 +767,7 @@
         const statusEl = document.getElementById('ajusteStatusDia');
         const boxParcial = document.getElementById('containerHorariosParciais');
         const tituloParcial = document.getElementById('tituloHorariosParciais');
+        const ajudaParcial = document.getElementById('ajudaHorasAbono');
         const boxPeriodo = document.getElementById('containerPeriodoStatus');
         const boxHorarios = document.getElementById('containerCamposHorarios');
 
@@ -778,21 +775,24 @@
 
         const status = statusEl.value;
 
-        // Controle dos Campos Parciais (Atestado Parcial ou Folga BH Parcial)
+        // Controle do Campo Direto de Abono de Horas (Atestado Parcial ou Folga BH Parcial)
         if (boxParcial) {
             if (status === 'ATESTADO_PARCIAL' || status === 'FOLGA_BH_PARCIAL') {
                 boxParcial.style.display = 'block';
                 if (tituloParcial) {
                     tituloParcial.innerText = status === 'ATESTADO_PARCIAL' 
-                        ? '⏱️ Período do Atestado Parcial:' 
-                        : '⏱️ Horas Utilizadas do Banco de Horas (BH):';
+                        ? '⏱️ Horas do Atestado Médico a Abonar (HH:MM):' 
+                        : '⏱️ Horas a Descontar do Banco de Horas (HH:MM):';
+                }
+                if (ajudaParcial) {
+                    ajudaParcial.innerText = status === 'ATESTADO_PARCIAL'
+                        ? '* Digite o total de horas do atestado para somar na jornada do dia (Ex: 02:10).'
+                        : '* Digite o total de horas de folga para debitar do Banco de Horas (Ex: 05:00).';
                 }
             } else {
                 boxParcial.style.display = 'none';
-                const hInicio = document.getElementById('horaInicioParcial');
-                const hFim = document.getElementById('horaFimParcial');
-                if (hInicio) hInicio.value = '';
-                if (hFim) hFim.value = '';
+                const inputHoras = document.getElementById('ajusteHorasAbono');
+                if (inputHoras) inputHoras.value = '';
             }
         }
 
