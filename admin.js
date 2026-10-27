@@ -510,7 +510,6 @@ function aplicarFiltroRapido(tipo) {
     filtrarRelatorioTela();
 }
 
-// 1. Limpar Tudo / Iniciar: Zera filtros e volta para selecionar colaborador
 function limparFiltrosRelatorio() {
     const selectColab = document.getElementById('filtroRelatorioColaborador');
     const inputInicio = document.getElementById('filtroRelatorioInicio');
@@ -532,7 +531,6 @@ function limparFiltrosRelatorio() {
     }
 }
 
-// 2. Limpar Seleção: Mantém o colaborador e limpa apenas as datas, recarregando todos os meses
 function limparSelecaoFiltros() {
     const inputInicio = document.getElementById('filtroRelatorioInicio');
     const inputFim = document.getElementById('filtroRelatorioFim');
@@ -703,9 +701,9 @@ function consolidarLogsBrutos(logsArray) {
                 minutosTrabalhados = 0;
             }
 
-            // 3. Folga BH Parcial (Horas): apura valor direto
+            // 3. Folga BH Parcial (Horas): apura valor informado de banco
             let minBhParcial = 0;
-            if (r.statusDia === "FOLGA_BH_PARCIAL" || (r.statusDia === "FOLGA_BH_PARCIAL" && r.horasAbono)) {
+            if (r.statusDia === "FOLGA_BH_PARCIAL") {
                 if (r.horasAbono && r.horasAbono !== "00:00") {
                     minBhParcial = bolarTempoParaMinutos(r.horasAbono) || 0;
                 } else if (r.horaInicioBh && r.horaFimBh) {
@@ -946,7 +944,7 @@ window.abrirModalEditarDia = function(diaBase64) {
 
     alternarCamposPorStatus();
     
-    // Blindagem de abertura: não carrega 00:00 se não houve almoço
+    // Limpeza de abertura: não carrega 00:00 se não houve almoço
     document.getElementById("ajusteEntrada").value = (obj.entrada && obj.entrada !== "-") ? obj.entrada : "";
     document.getElementById("ajusteAlmIda").value = (obj.almocoIda && obj.almocoIda !== "-" && obj.almocoIda !== "00:00") ? obj.almocoIda : "";
     document.getElementById("ajusteAlmVolta").value = (obj.almocoVolta && obj.almocoVolta !== "-" && obj.almocoVolta !== "00:00") ? obj.almocoVolta : "";
@@ -961,7 +959,9 @@ window.abrirModalEditarDia = function(diaBase64) {
         campoObs.value = textoSalvo;
     }
 
-    new bootstrap.Modal(document.getElementById('modalEditarDiaPonto')).show();
+    const modalEl = document.getElementById('modalEditarDiaPonto');
+    const modalInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
+    modalInstance.show();
 };
 
 async function salvarAjusteHorariosDia(event) {
@@ -975,7 +975,6 @@ async function salvarAjusteHorariosDia(event) {
     let hAlmVolta = document.getElementById("ajusteAlmVolta").value;
     const hSaida = document.getElementById("ajusteSaida").value;
 
-    // Se o usuário deixou 00:00 no almoço, zera para não criar intervalo fantasma de madrugada
     if (hAlmIda === "00:00") hAlmIda = "";
     if (hAlmVolta === "00:00") hAlmVolta = "";
 
@@ -1050,7 +1049,11 @@ async function salvarAjusteHorariosDia(event) {
                 }
                 cur.setDate(cur.getDate() + 1);
             }
-            bootstrap.Modal.getInstance(document.getElementById('modalEditarDiaPonto')).hide();
+            
+            const modalEl = document.getElementById('modalEditarDiaPonto');
+            const mInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
+            if (mInstance) mInstance.hide();
+            
             exibirAlertaTop("Período Atualizado", `O período de <strong>${converterDataIsoParaBr(dataInicioIso)} até ${converterDataIsoParaBr(dataFimIso)}</strong> foi registrado como <strong>${statusDiaEscolhido}</strong> com sucesso!`);
             await filtrarRelatorioTela();
             return;
@@ -1070,19 +1073,21 @@ async function salvarAjusteHorariosDia(event) {
             const d = doc.data();
             mapaDocExistente[d.tipo] = doc.id;
         });
+
         const tiposHorarios = [
             { tipo: "Entrada", hora: hEntrada },
             { tipo: "Almoço Ida", hora: hAlmIda },
             { tipo: "Almoço Volta", hora: hAlmVolta },
             { tipo: "Saída", hora: hSaida }
         ];
+
         let salvouAlgumPonto = false;
         for (let item of tiposHorarios) {
             const docId = mapaDocExistente[item.tipo];
-            if ((item.hora && item.hora.trim() !== "") || (horasAbonoInput !== "")) {
+            if (item.hora && item.hora.trim() !== "") {
                 salvouAlgumPonto = true;
                 const payloadDoc = {
-                    hora: item.hora ? item.hora.trim() : "",
+                    hora: item.hora.trim(),
                     statusDia: statusDiaEscolhido,
                     horasAbono: horasAbonoInput,
                     horaInicioAtestado: "",
@@ -1112,6 +1117,7 @@ async function salvarAjusteHorariosDia(event) {
                 }
             }
         }
+
         if (!salvouAlgumPonto && (statusDiaEscolhido !== "NORMAL" || observacaoTexto !== "" || horasAbonoInput !== "")) {
             const docGenerico = snapExistentes.docs[0];
             const payloadGen = {
@@ -1138,7 +1144,11 @@ async function salvarAjusteHorariosDia(event) {
                 });
             }
         }
-        bootstrap.Modal.getInstance(document.getElementById('modalEditarDiaPonto')).hide();
+
+        const modalEl = document.getElementById('modalEditarDiaPonto');
+        const mInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
+        if (mInstance) mInstance.hide();
+
         exibirAlertaTop("Ajuste Realizado", `O dia <strong>${dataAlvoOriginal}</strong> foi atualizado com sucesso.`);
         await filtrarRelatorioTela();
     } catch (err) {
@@ -1292,7 +1302,6 @@ async function filtrarRelatorioTela() {
             tr.setAttribute('style', 'background-color: #f8fafc;');
         }
 
-        // Exibe com fidelidade as batidas reais de ponto
         tr.innerHTML = `
             <td><strong>${r.data}</strong>${tagStatusHtml}</td>
             <td>${r.nome}</td>
@@ -1310,10 +1319,7 @@ async function filtrarRelatorioTela() {
         tabelaBody.appendChild(tr);
     });
 
-    // Total Realizado: Horas Trabalhadas + Folga BH compensada (quando houver)
     const totalRealizadoMinutos = acumuladorTrabalhadas + acumuladorFolgaBh;
-
-    // Cálculo do Resultado Real: Total Realizado - Carga Esperada
     const saldoLiquidoMinutos = totalRealizadoMinutos - acumuladorEsperadas;
     const saldoAbsoluto = Math.abs(saldoLiquidoMinutos);
     const strSaldoReal = formatarMinutosParaString(saldoAbsoluto);
@@ -1327,7 +1333,6 @@ async function filtrarRelatorioTela() {
         htmlSaldoExtras = `<span style="color: #64748b; font-weight: 900; font-size: 1.05rem;">00:00 (Zerado)</span>`;
     }
 
-    // Rodapé do relatório detalhado limpo e individualizado
     const trTotal = document.createElement('tr');
     trTotal.style.backgroundColor = "#f8fafc";
     trTotal.innerHTML = `
@@ -1342,7 +1347,6 @@ async function filtrarRelatorioTela() {
     `;
     tabelaBody.appendChild(trTotal);
 
-    // PREENCHIMENTO DA TABELA RESUMO GERENCIAL MENSAL (CUMULATIVO)
     if (tabelaGerencialBody) {
         const dadosMensais = consolidarPorMes(dadosConsolidados);
         const user = bancoUsuarios.find(u => String(u.id) === String(filtroColab)) || {};
@@ -1360,7 +1364,6 @@ async function filtrarRelatorioTela() {
 
             const strTrabMes = formatarMinutosParaString(m.minutosTrabalhadosNum);
             
-            // Horas extras do mês
             let strExtraMes = "00:00";
             let corExtraMes = "text-secondary";
             if (m.minutosExtrasPositivosNum > 0) {
@@ -1368,10 +1371,8 @@ async function filtrarRelatorioTela() {
                 corExtraMes = "text-success";
             }
 
-            // Folga BH do mês
             const strBhMes = m.minutosFolgaBhNum > 0 ? `- ${formatarMinutosParaString(m.minutosFolgaBhNum)}` : "-";
 
-            // Resultado do mês
             let strResMes = "00:00";
             let corResMes = "text-secondary";
             if (m.resultadoGeralNum > 0) {
@@ -1394,7 +1395,6 @@ async function filtrarRelatorioTela() {
             tabelaGerencialBody.appendChild(trM);
         });
 
-        // Rodapé de fechamento do Resumo Gerencial Mensal
         const strResGeralAbs = formatarMinutosParaString(Math.abs(acumuladorGeralResultado));
         let htmlResGeralMensal = "";
         if (acumuladorGeralResultado > 0) {
