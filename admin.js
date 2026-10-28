@@ -630,7 +630,6 @@ function consolidarLogsBrutos(logsArray) {
         let minutosTrabalhados = 0;
         const mEntrada = bolarTempoParaMinutos(r.entrada);
         
-        // 00:00, vazio ou "-" em intervalo de almoço é nulo (não houve almoço)
         let mAlmIda = bolarTempoParaMinutos(r.almocoIda);
         let mAlmVolta = bolarTempoParaMinutos(r.almocoVolta);
         if (r.almocoIda === "00:00" || r.almocoIda === "-" || r.almocoIda === "") mAlmIda = null;
@@ -658,7 +657,6 @@ function consolidarLogsBrutos(logsArray) {
                 minutosTrabalhados += (calcSaida - mEntrada);
             }
         } else {
-            // Se teve saída e volta de almoço válidas
             if (mEntrada !== null && calcAlmIda !== null && calcAlmIda > mEntrada) {
                 minutosTrabalhados += (calcAlmIda - mEntrada);
             }
@@ -688,20 +686,17 @@ function consolidarLogsBrutos(logsArray) {
                 cargaObrigatoriaDoDia = minCalc !== null ? minCalc : 480;
             }
 
-            // 1. Folga padrão abonada, Férias, Atestado Integral e Feriado abonam o dia completo
             if (r.statusDia === "FERIADO" || r.statusDia === "FERIAS" || r.statusDia === "ATESTADO" || r.statusDia === "FOLGA") {
                 if (minutosTrabalhados < cargaObrigatoriaDoDia) {
                     minutosTrabalhados = cargaObrigatoriaDoDia;
                 }
             }
 
-            // 2. Folga BH Integral: apura débito no banco de horas
             if (r.statusDia === "FOLGA_BH") {
                 r.minutosFolgaBhNum = cargaObrigatoriaDoDia;
                 minutosTrabalhados = 0;
             }
 
-            // 3. Folga BH Parcial (Horas): apura valor informado de banco
             let minBhParcial = 0;
             if (r.statusDia === "FOLGA_BH_PARCIAL") {
                 if (r.horasAbono && r.horasAbono !== "00:00") {
@@ -714,7 +709,6 @@ function consolidarLogsBrutos(logsArray) {
                 r.minutosFolgaBhNum = minBhParcial;
             }
 
-            // 4. Atestado Parcial (Horas): lê a quantidade de horas a abonar
             let minAtestadoParcial = 0;
             if (r.statusDia === "ATESTADO_PARCIAL" || r.statusDia === "ATESTADO PARCIAL") {
                 if (r.horasAbono && r.horasAbono !== "00:00") {
@@ -726,12 +720,10 @@ function consolidarLogsBrutos(logsArray) {
                 }
             }
 
-            // Soma o atestado parcial às horas trabalhadas do dia
             if (minAtestadoParcial > 0) {
                 minutosTrabalhados += minAtestadoParcial;
             }
 
-            // Apuração da diferença diária (Horas Extras ou Atrasos)
             let diferencaDia = 0;
             if (r.statusDia === "FOLGA_BH") {
                 diferencaDia = 0;
@@ -742,7 +734,6 @@ function consolidarLogsBrutos(logsArray) {
                 diferencaDia = minutosTrabalhados - cargaObrigatoriaDoDia;
             }
 
-            // Equalização de tolerância CLT (até 15 minutos): arredonda para a carga padrão do dia
             if (minutosTrabalhados > 0 && cargaObrigatoriaDoDia > 0 && r.statusDia !== "FOLGA_BH" && r.statusDia !== "FOLGA_BH_PARCIAL" && minBhParcial === 0) {
                 if (Math.abs(diferencaDia) <= 15) {
                     minutosTrabalhados = cargaObrigatoriaDoDia;
@@ -944,7 +935,6 @@ window.abrirModalEditarDia = function(diaBase64) {
 
     alternarCamposPorStatus();
     
-    // Limpeza de abertura: não carrega 00:00 se não houve almoço
     document.getElementById("ajusteEntrada").value = (obj.entrada && obj.entrada !== "-") ? obj.entrada : "";
     document.getElementById("ajusteAlmIda").value = (obj.almocoIda && obj.almocoIda !== "-" && obj.almocoIda !== "00:00") ? obj.almocoIda : "";
     document.getElementById("ajusteAlmVolta").value = (obj.almocoVolta && obj.almocoVolta !== "-" && obj.almocoVolta !== "00:00") ? obj.almocoVolta : "";
@@ -985,7 +975,7 @@ async function salvarAjusteHorariosDia(event) {
     btn.disabled = true;
     btn.innerHTML = "⏳ Gravando Ajuste...";
 
-    // 1. Fecha o modal imediatamente para evitar travamento na tela
+    // Fecha o modal imediatamente para evitar travamento na tela
     const modalEl = document.getElementById('modalEditarDiaPonto');
     const mInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
     if (mInstance) mInstance.hide();
@@ -1013,13 +1003,22 @@ async function salvarAjusteHorariosDia(event) {
                 const mesStr = String(cur.getMonth() + 1).padStart(2, '0');
                 const anoStr = cur.getFullYear();
                 const dataFormatada = `${diaStr}/${mesStr}/${anoStr}`;
+                
+                // Busca sem exigir índice composto (busca apenas por empresa e filtra data em memória)
                 const snapExistentes = await db.collection("historico_pontos")
                     .where("empresaEmail", "==", PREFIXO_EMPRESA)
-                    .where("colaboradorId", "==", String(colabId))
-                    .where("data", "==", dataFormatada)
                     .get();
-                if (!snapExistentes.empty) {
-                    for (let doc of snapExistentes.docs) {
+
+                let docsParaAtualizar = [];
+                snapExistentes.forEach(doc => {
+                    const d = doc.data();
+                    if (String(d.colaboradorId) === String(colabId) && d.data === dataFormatada) {
+                        docsParaAtualizar.push(doc.id);
+                    }
+                });
+
+                if (docsParaAtualizar.length > 0) {
+                    for (let docId of docsParaAtualizar) {
                         const payloadUpdate = {
                             statusDia: statusDiaEscolhido,
                             horasAbono: "",
@@ -1029,7 +1028,7 @@ async function salvarAjusteHorariosDia(event) {
                             horaFimBh: ""
                         };
                         if (observacaoTexto !== "") payloadUpdate.observacao = observacaoTexto;
-                        await db.collection("historico_pontos").doc(doc.id).update(payloadUpdate);
+                        await db.collection("historico_pontos").doc(docId).update(payloadUpdate);
                     }
                 } else {
                     await db.collection("historico_pontos").add({
@@ -1061,15 +1060,21 @@ async function salvarAjusteHorariosDia(event) {
             statusDiaEscolhido = "EDITADO";
         }
 
+        // Busca sem exigir índice composto
         const snapExistentes = await db.collection("historico_pontos")
             .where("empresaEmail", "==", PREFIXO_EMPRESA)
-            .where("colaboradorId", "==", String(colabId))
-            .where("data", "==", dataAlvoOriginal)
             .get();
+
         const mapaDocExistente = {};
+        let docGenericoId = null;
         snapExistentes.forEach(doc => {
             const d = doc.data();
-            mapaDocExistente[d.tipo] = doc.id;
+            if (String(d.colaboradorId) === String(colabId) && d.data === dataAlvoOriginal) {
+                mapaDocExistente[d.tipo] = doc.id;
+                if (d.tipo === "Registro Especial") {
+                    docGenericoId = doc.id;
+                }
+            }
         });
 
         const tiposHorarios = [
@@ -1117,7 +1122,6 @@ async function salvarAjusteHorariosDia(event) {
         }
 
         if (!salvouAlgumPonto && (statusDiaEscolhido !== "NORMAL" || observacaoTexto !== "" || horasAbonoInput !== "")) {
-            const docGenerico = snapExistentes.docs[0];
             const payloadGen = {
                 statusDia: statusDiaEscolhido,
                 horasAbono: horasAbonoInput,
@@ -1127,8 +1131,8 @@ async function salvarAjusteHorariosDia(event) {
                 horaFimBh: "",
                 observacao: observacaoTexto
             };
-            if (docGenerico) {
-                await db.collection("historico_pontos").doc(docGenerico.id).update(payloadGen);
+            if (docGenericoId) {
+                await db.collection("historico_pontos").doc(docGenericoId).update(payloadGen);
             } else {
                 await db.collection("historico_pontos").add({
                     colaboradorId: String(colabId),
@@ -1739,8 +1743,8 @@ async function exportarPontosExcel() {
         { s: { r: idxTrab, c: 6 }, e: { r: idxTrab, c: 8 } }, 
         { s: { r: idxSaldo, c: 0 }, e: { r: idxSaldo, c: 5 } }, 
         { s: { r: idxSaldo, c: 6 }, e: { r: idxSaldo, c: 8 } }, 
-        { s: { r: idxFolgaBh, c: 0 }, e: { r: idxFolgaBh, c: 5 } }, 
-        { s: { r: idxFolgaBh, c: 6 }, e: { r: idxFolgaBh, c: 8 } }, 
+        { s: { r: idxFolgaBh, c: 0 }, e: { r: idxFolgaBh, c: 3 } }, 
+        { s: { r: idxFolgaBh, c: 4 }, e: { r: idxFolgaBh, c: 5 } }, 
         { s: { r: idxDeclaracao, c: 0 }, e: { r: idxDeclaracao, c: 8 } }, 
         { s: { r: idxLinhaAssinatura, c: 2 }, e: { r: idxLinhaAssinatura, c: 6 } }
     ];
@@ -1756,232 +1760,6 @@ async function exportarPontosExcel() {
         { wch: 13 },
         { wch: 40 }
     ];
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Folha_de_Ponto");
-    XLSX.writeFile(workbook, `Folha_Ponto_${colabNome.replace(/ /g, "_")}.xlsx`);
-}
-
-async function exportarExcelGerencial() {
-    const filtroColab = document.getElementById('filtroRelatorioColaborador').value;
-
-    if (filtroColab === "todos") {
-        exibirAlertaTop("Selecione um Colaborador", "Por favor, defina qual colaborador deseja exportar para gerar o relatório gerencial.");
-        return;
-    }
-    let dadosRelatorio = await puxarLogsEFiltrar();
-
-    const filtroInicio = document.getElementById('filtroRelatorioInicio').value;
-    const filtroFim = document.getElementById('filtroRelatorioFim').value;
-
-    if (filtroInicio && filtroFim) {
-        dadosRelatorio = preencherCalendarioCompleto(dadosRelatorio, filtroInicio, filtroFim, filtroColab);
-    } else {
-        if (filtroInicio) {
-            const dInicio = new Date(filtroInicio + "T00:00:00");
-            dadosRelatorio = dadosRelatorio.filter(r => {
-                if(!r.data) return false;
-                const p = r.data.split('/');
-                if(p.length !== 3) return false;
-                return new Date(p[2], p[1]-1, p[0]) >= dInicio;
-            });
-        }
-        if (filtroFim) {
-            const dFim = new Date(filtroFim + "T23:59:59");
-            dadosRelatorio = dadosRelatorio.filter(r => {
-                if(!r.data) return false;
-                const p = r.data.split('/');
-                if(p.length !== 3) return false;
-                return new Date(p[2], p[1]-1, p[0]) <= dFim;
-            });
-        }
-    }
-
-    if (dadosRelatorio.length === 0) {
-        exibirAlertaTop("Sem Dados", "Não há dados consolidados para o colaborador filtrado.");
-        return;
-    }
-
-    const dadosMensais = consolidarPorMes(dadosRelatorio);
-
-    const user = bancoUsuarios.find(u => String(u.id) === String(filtroColab)) || {};
-    const colabNome = user.nome || dadosRelatorio[0].nome;
-    const colabCpf = user.cpf || "-";
-    const colabCargo = user.cargo || user.funcao || "-";
-    const nomeEmpresa = dadosEmpresaAtiva.nome || sessionStorage.getItem("nome_empresa_ativa") || "Empresa Parceira";
-    const cnpjEmpresa = dadosEmpresaAtiva.cnpj || "-";
-    const dataEmissao = new Date().toLocaleDateString('pt-BR');
-
-    const matrizGerencial = [
-        ["RELATÓRIO GERENCIAL MENSAL - BANCO DE HORAS"],
-        [],
-        ["EMPRESA:", nomeEmpresa, "", "CNPJ:", cnpjEmpresa, ""],
-        ["COLABORADOR:", colabNome, "", "CPF:", colabCpf, ""],
-        ["CARGO / FUNÇÃO:", colabCargo, "", "EMISSÃO:", dataEmissao, ""],
-        [],
-        ["Mês / Ano", "Colaborador", "Horas Trab.", "Horas Extras", "Folga BH", "Resultado"]
-    ];
-
-    let somaGeralTrab = 0;
-    let somaGeralBh = 0;
-    let somaGeralResultado = 0;
-
-    dadosMensais.forEach(m => {
-        somaGeralTrab += m.minutosTrabalhadosNum;
-        somaGeralBh += m.minutosFolgaBhNum;
-        somaGeralResultado += m.resultadoGeralNum;
-
-        const strTrab = formatarMinutosParaString(m.minutosTrabalhadosNum);
-        
-        let strExtra = "00:00";
-        if (m.minutosExtrasPositivosNum > 0) strExtra = `+${formatarMinutosParaString(m.minutosExtrasPositivosNum)}`;
-
-        const strBh = m.minutosFolgaBhNum > 0 ? `- ${formatarMinutosParaString(m.minutosFolgaBhNum)}` : "-";
-
-        let strRes = "00:00";
-        if (m.resultadoGeralNum > 0) strRes = `+${formatarMinutosParaString(m.resultadoGeralNum)}`;
-        else if (m.resultadoGeralNum < 0) strRes = `-${formatarMinutosParaString(Math.abs(m.resultadoGeralNum))}`;
-
-        matrizGerencial.push([
-            m.rotulo,
-            m.colaborador,
-            strTrab,
-            strExtra,
-            strBh,
-            strRes
-        ]);
-    });
-
-    const strResultadoGeralAbs = formatarMinutosParaString(Math.abs(somaGeralResultado));
-    let textoResultadoGeral = "00:00 (Quitado)";
-    if (somaGeralResultado > 0) textoResultadoGeral = `+ ${strResultadoGeralAbs} (Saldo Positivo)`;
-    else if (somaGeralResultado < 0) textoResultadoGeral = `- ${strResultadoGeralAbs} (Saldo Devedor)`;
-
-    matrizGerencial.push([]);
-    const idxTitle = matrizGerencial.length;
-    matrizGerencial.push(["RESUMO GERAL CUMULATIVO", "", "", "", "", ""]);
-
-    const idxTrab = matrizGerencial.length;
-    matrizGerencial.push(["TOTAL DE HORAS TRABALHADAS:", "", "", "", formatarMinutosParaString(somaGeralTrab), ""]);
-
-    const idxFolgaBh = matrizGerencial.length;
-    matrizGerencial.push(["TOTAL BANCO DE HORAS COMPENSADO:", "", "", "", `- ${formatarMinutosParaString(somaGeralBh)}`, ""]);
-
-    const idxResultadoGeral = matrizGerencial.length;
-    matrizGerencial.push(["RESULTADO GERAL CUMULATIVO:", "", "", "", textoResultadoGeral, ""]);
-
-    matrizGerencial.push([]);
-    matrizGerencial.push([]);
-    matrizGerencial.push([]);
-
-    const idxAssinatura = matrizGerencial.length;
-    matrizGerencial.push(["", "Assinatura do Colaborador", "", "", "", ""]);
-
-    const worksheet = XLSX.utils.aoa_to_sheet(matrizGerencial);
-
-    const bordaSuave = {
-        top: { style: "thin", color: { rgb: "CBD5E1" } },
-        bottom: { style: "thin", color: { rgb: "CBD5E1" } },
-        left: { style: "thin", color: { rgb: "CBD5E1" } },
-        right: { style: "thin", color: { rgb: "CBD5E1" } }
-    };
-
-    const range = XLSX.utils.decode_range(worksheet['!ref']);
-    for (let R = range.s.r; R <= range.e.r; ++R) {
-        for (let C = range.s.c; C <= range.e.c; ++C) {
-            const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
-            if (!worksheet[cellAddress]) worksheet[cellAddress] = { t: 's', v: '' };
-            const cell = worksheet[cellAddress];
-
-            if (R === 0) {
-                cell.s = {
-                    fill: { fgColor: { rgb: "0F172A" } },
-                    font: { bold: true, color: { rgb: "F97316" }, size: 14, name: "Calibri" },
-                    alignment: { horizontal: "center", vertical: "center" }
-                };
-            } else if (R >= 2 && R <= 4) {
-                if ([0, 3].includes(C) && cell.v) {
-                    cell.s = { fill: { fgColor: { rgb: "F1F5F9" } }, font: { bold: true, color: { rgb: "475569" }, size: 9 }, border: bordaSuave };
-                } else {
-                    cell.s = { fill: { fgColor: { rgb: "FFFFFF" } }, font: { bold: true, color: { rgb: "0F172A" }, size: 9.5 }, border: bordaSuave };
-                }
-            } else if (R === 6) {
-                cell.s = {
-                    fill: { fgColor: { rgb: "0F172A" } },
-                    font: { bold: true, color: { rgb: "FFFFFF" }, size: 10 },
-                    alignment: { horizontal: "center", vertical: "center" },
-                    border: bordaSuave
-                };
-            } else if (R >= 7 && R < idxTitle - 1) {
-                const isPar = (R % 2 === 0);
-                cell.s = {
-                    fill: { fgColor: { rgb: isPar ? "F8FAFC" : "FFFFFF" } },
-                    font: { color: { rgb: "334155" }, size: 9.5 },
-                    alignment: { horizontal: C <= 1 ? "left" : "center", vertical: "center" },
-                    border: bordaSuave
-                };
-                if (C === 2) cell.s.font = { bold: true, color: { rgb: "0F172A" }, size: 9.5 };
-                if (C === 3) {
-                    const vStr = String(cell.v || "");
-                    cell.s.font = { bold: true, color: { rgb: vStr.startsWith("+") ? "059669" : (vStr.startsWith("-") ? "DC2626" : "334155") }, size: 9.5 };
-                }
-                if (C === 4) cell.s.font = { bold: true, color: { rgb: "EA580C" }, size: 9.5 };
-                if (C === 5) {
-                    const vStr = String(cell.v || "");
-                    cell.s.font = { bold: true, color: { rgb: vStr.startsWith("+") ? "059669" : (vStr.startsWith("-") ? "DC2626" : "334155") }, size: 9.5 };
-                }
-            } else if (R === idxTitle) {
-                cell.s = {
-                    fill: { fgColor: { rgb: "0F172A" } },
-                    font: { bold: true, color: { rgb: "FFFFFF" }, size: 10 },
-                    alignment: { horizontal: "center", vertical: "center" },
-                    border: bordaSuave
-                };
-            } else if (R >= idxTrab && R <= idxResultadoGeral) {
-                if (C <= 3) {
-                    cell.s = { fill: { fgColor: { rgb: "F8FAFC" } }, font: { bold: true, color: { rgb: "334155" }, size: 9.5 }, alignment: { horizontal: "right", vertical: "center" }, border: bordaSuave };
-                } else {
-                    let corTexto = "0F172A";
-                    if (R === idxResultadoGeral) corTexto = somaGeralResultado > 0 ? "059669" : (somaGeralResultado < 0 ? "DC2626" : "0F172A");
-                    if (R === idxFolgaBh) corTexto = "EA580C";
-                    cell.s = { fill: { fgColor: { rgb: "FFFFFF" } }, font: { bold: true, color: { rgb: corTexto }, size: 10.5 }, alignment: { horizontal: "center", vertical: "center" }, border: bordaSuave };
-                }
-            } else if (R === idxAssinatura) {
-                cell.s = {
-                    font: { bold: true, color: { rgb: "1E293B" }, size: 10 },
-                    alignment: { horizontal: "center", vertical: "top" },
-                    border: { top: { style: "medium", color: { rgb: "0F172A" } } }
-                };
-            }
-        }
-    }
-
-    worksheet['!merges'] = [
-        { s: { r: 0, c: 0 }, e: { r: 0, c: 5 } },
-        { s: { r: 2, c: 1 }, e: { r: 2, c: 2 } },
-        { s: { r: 2, c: 4 }, e: { r: 2, c: 5 } },
-        { s: { r: 3, c: 1 }, e: { r: 3, c: 2 } },
-        { s: { r: 3, c: 4 }, e: { r: 3, c: 5 } },
-        { s: { r: 4, c: 1 }, e: { r: 4, c: 2 } },
-        { s: { r: 4, c: 4 }, e: { r: 4, c: 5 } },
-        { s: { r: idxTitle, c: 0 }, e: { r: idxTitle, c: 5 } },
-        { s: { r: idxTrab, c: 0 }, e: { r: idxTrab, c: 3 } },
-        { s: { r: idxTrab, c: 4 }, e: { r: idxTrab, c: 5 } },
-        { s: { r: idxFolgaBh, c: 0 }, e: { r: idxFolgaBh, c: 3 } },
-        { s: { r: idxFolgaBh, c: 4 }, e: { r: idxFolgaBh, c: 5 } },
-        { s: { r: idxResultadoGeral, c: 0 }, e: { r: idxResultadoGeral, c: 3 } },
-        { s: { r: idxResultadoGeral, c: 4 }, e: { r: idxResultadoGeral, c: 5 } },
-        { s: { r: idxAssinatura, c: 1 }, e: { r: idxAssinatura, c: 4 } }
-    ];
-
-    worksheet['!cols'] = [
-        { wch: 20 },
-        { wch: 32 },
-        { wch: 14 },
-        { wch: 14 },
-        { wch: 18 },
-        { wch: 18 }
-    ];
-
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Resumo_Mensal_BH");
     XLSX.writeFile(workbook, `Relatorio_Gerencial_Mensal_${colabNome.replace(/ /g, "_")}.xlsx`);
