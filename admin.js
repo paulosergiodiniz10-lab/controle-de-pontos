@@ -953,8 +953,21 @@ window.abrirModalEditarDia = function(diaBase64) {
     modalInstance.show();
 };
 
+function fecharModalAjuste() {
+    const modalEl = document.getElementById('modalEditarDiaPonto');
+    if (modalEl) {
+        const mInstance = bootstrap.Modal.getInstance(modalEl) || bootstrap.Modal.getOrCreateInstance(modalEl);
+        if (mInstance) mInstance.hide();
+    }
+    document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
+    document.body.classList.remove('modal-open');
+    document.body.style.removeProperty('padding-right');
+    document.body.style.removeProperty('overflow');
+}
+
 async function salvarAjusteHorariosDia(event) {
-    event.preventDefault();
+    if (event) event.preventDefault();
+
     const dataAlvoOriginal = (document.getElementById("modalAjusteDataVal") && document.getElementById("modalAjusteDataVal").value) ? document.getElementById("modalAjusteDataVal").value.trim() : "";
     const colabId = (document.getElementById("modalAjusteColabIdVal") && document.getElementById("modalAjusteColabIdVal").value) ? document.getElementById("modalAjusteColabIdVal").value.trim() : "";
     let statusDiaEscolhido = (document.getElementById("ajusteStatusDia") && document.getElementById("ajusteStatusDia").value) ? document.getElementById("ajusteStatusDia").value.trim() : "NORMAL";
@@ -976,13 +989,6 @@ async function salvarAjusteHorariosDia(event) {
         btn.innerHTML = "⏳ Gravando Ajuste...";
     }
 
-    // Fecha o modal imediatamente
-    const modalEl = document.getElementById('modalEditarDiaPonto');
-    if (modalEl) {
-        const mInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
-        if (mInstance) mInstance.hide();
-    }
-
     try {
         const user = bancoUsuarios.find(u => String(u.id) === String(colabId));
         const nomeColab = user ? user.nome : "Colaborador";
@@ -991,15 +997,12 @@ async function salvarAjusteHorariosDia(event) {
             const dataInicioIso = document.getElementById("ajusteDataInicioPeriodo").value;
             const dataFimIso = document.getElementById("ajusteDataFimPeriodo").value;
             if (!dataInicioIso || !dataFimIso) {
-                exibirAlertaTop("⚠️ Datas Inválidas", "Por favor, selecione as datas de início e término do período.");
+                exibirAlertaTop("⚠️ Datas Inválidas", "Por favor, selecione as datas de início e término.");
+                if (btn) { btn.disabled = false; btn.innerHTML = "💾 Salvar Ajuste"; }
                 return;
             }
             const dInicio = new Date(dataInicioIso + "T00:00:00");
             const dFim = new Date(dataFimIso + "T00:00:00");
-            if (dInicio > dFim) {
-                exibirAlertaTop("⚠️ Período Incoerente", "A data de início não pode ser maior que a data de término.");
-                return;
-            }
             let cur = new Date(dInicio);
             while (cur <= dFim) {
                 const diaStr = String(cur.getDate()).padStart(2, '0');
@@ -1007,54 +1010,27 @@ async function salvarAjusteHorariosDia(event) {
                 const anoStr = cur.getFullYear();
                 const dataFormatada = `${diaStr}/${mesStr}/${anoStr}`;
                 
-                // Busca sem índice composto
-                const snapExistentes = await db.collection("historico_pontos")
-                    .where("empresaEmail", "==", PREFIXO_EMPRESA)
-                    .get();
-
-                let docsParaAtualizar = [];
-                snapExistentes.forEach(doc => {
-                    const d = doc.data();
-                    if (String(d.colaboradorId) === String(colabId) && d.data === dataFormatada) {
-                        docsParaAtualizar.push(doc.id);
-                    }
+                await db.collection("historico_pontos").add({
+                    colaboradorId: String(colabId),
+                    nome: nomeColab,
+                    data: dataFormatada,
+                    tipo: "Registro Especial",
+                    hora: "-",
+                    statusDia: statusDiaEscolhido,
+                    horasAbono: "",
+                    horaInicioAtestado: "",
+                    horaFimAtestado: "",
+                    horaInicioBh: "",
+                    horaFimBh: "",
+                    observacao: observacaoTexto,
+                    empresaEmail: PREFIXO_EMPRESA,
+                    timestamp: firebase.firestore.FieldValue.serverTimestamp()
                 });
-
-                if (docsParaAtualizar.length > 0) {
-                    for (let docId of docsParaAtualizar) {
-                        const payloadUpdate = {
-                            statusDia: statusDiaEscolhido,
-                            horasAbono: "",
-                            horaInicioAtestado: "",
-                            horaFimAtestado: "",
-                            horaInicioBh: "",
-                            horaFimBh: ""
-                        };
-                        if (observacaoTexto !== "") payloadUpdate.observacao = observacaoTexto;
-                        await db.collection("historico_pontos").doc(docId).set(payloadUpdate, { merge: true });
-                    }
-                } else {
-                    await db.collection("historico_pontos").add({
-                        colaboradorId: String(colabId),
-                        nome: nomeColab,
-                        data: dataFormatada,
-                        tipo: "Registro Especial",
-                        hora: "-",
-                        statusDia: statusDiaEscolhido,
-                        horasAbono: "",
-                        horaInicioAtestado: "",
-                        horaFimAtestado: "",
-                        horaInicioBh: "",
-                        horaFimBh: "",
-                        observacao: observacaoTexto,
-                        empresaEmail: PREFIXO_EMPRESA,
-                        timestamp: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                }
                 cur.setDate(cur.getDate() + 1);
             }
             
-            exibirAlertaTop("Período Atualizado", `O período de <strong>${converterDataIsoParaBr(dataInicioIso)} até ${converterDataIsoParaBr(dataFimIso)}</strong> foi registrado como <strong>${statusDiaEscolhido}</strong> com sucesso!`);
+            fecharModalAjuste();
+            exibirAlertaTop("Período Atualizado", `Período registrado como <strong>${statusDiaEscolhido}</strong> com sucesso!`);
             filtrarRelatorioTela();
             return;
         }
@@ -1063,20 +1039,13 @@ async function salvarAjusteHorariosDia(event) {
             statusDiaEscolhido = "EDITADO";
         }
 
-        // Busca sem índice composto: apenas por empresa e filtra na memória
-        const snapExistentes = await db.collection("historico_pontos")
-            .where("empresaEmail", "==", PREFIXO_EMPRESA)
-            .get();
-
+        // Busca com 1 único filtro para evitar erro de índice composto
+        const snapExistentes = await db.collection("historico_pontos").where("empresaEmail", "==", PREFIXO_EMPRESA).get();
         const mapaDocExistente = {};
-        let docGenericoId = null;
         snapExistentes.forEach(doc => {
             const d = doc.data();
             if (String(d.colaboradorId) === String(colabId) && d.data === dataAlvoOriginal) {
                 mapaDocExistente[d.tipo] = doc.id;
-                if (d.tipo === "Registro Especial") {
-                    docGenericoId = doc.id;
-                }
             }
         });
 
@@ -1087,80 +1056,42 @@ async function salvarAjusteHorariosDia(event) {
             { tipo: "Saída", hora: hSaida }
         ];
 
-        let salvouAlgumPonto = false;
         for (let item of tiposHorarios) {
             const docId = mapaDocExistente[item.tipo];
-            if (item.hora && item.hora !== "") {
-                salvouAlgumPonto = true;
-                const payloadDoc = {
-                    hora: item.hora,
-                    statusDia: statusDiaEscolhido,
-                    horasAbono: horasAbonoInput,
-                    horaInicioAtestado: "",
-                    horaFimAtestado: "",
-                    horaInicioBh: "",
-                    horaFimBh: ""
-                };
-                if (observacaoTexto !== "") {
-                    payloadDoc.observacao = observacaoTexto;
-                }
-                if (docId) {
-                    await db.collection("historico_pontos").doc(docId).set(payloadDoc, { merge: true });
-                } else {
-                    await db.collection("historico_pontos").add({
-                        colaboradorId: String(colabId),
-                        nome: nomeColab,
-                        data: dataAlvoOriginal,
-                        tipo: item.tipo,
-                        empresaEmail: PREFIXO_EMPRESA,
-                        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-                        ...payloadDoc
-                    });
-                }
-            } else {
-                if (docId) {
-                    try {
-                        await db.collection("historico_pontos").doc(docId).delete();
-                    } catch(eDel) {
-                        await db.collection("historico_pontos").doc(docId).set({ hora: "-" }, { merge: true });
-                    }
-                }
-            }
-        }
-
-        if (!salvouAlgumPonto && (statusDiaEscolhido !== "NORMAL" || observacaoTexto !== "" || horasAbonoInput !== "")) {
-            const payloadGen = {
+            const horaGravacao = (item.hora && item.hora.trim() !== "") ? item.hora.trim() : "-";
+            const payloadDoc = {
+                colaboradorId: String(colabId),
+                nome: nomeColab,
+                data: dataAlvoOriginal,
+                tipo: item.tipo,
+                empresaEmail: PREFIXO_EMPRESA,
+                hora: horaGravacao,
                 statusDia: statusDiaEscolhido,
                 horasAbono: horasAbonoInput,
                 horaInicioAtestado: "",
                 horaFimAtestado: "",
                 horaInicioBh: "",
                 horaFimBh: "",
-                observacao: observacaoTexto
+                observacao: observacaoTexto,
+                timestamp: firebase.firestore.FieldValue.serverTimestamp()
             };
-            if (docGenericoId) {
-                await db.collection("historico_pontos").doc(docGenericoId).set(payloadGen, { merge: true });
-            } else {
-                await db.collection("historico_pontos").add({
-                    colaboradorId: String(colabId),
-                    nome: nomeColab,
-                    data: dataAlvoOriginal,
-                    tipo: "Registro Especial",
-                    hora: "-",
-                    empresaEmail: PREFIXO_EMPRESA,
-                    timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-                    ...payloadGen
-                });
+
+            if (docId) {
+                await db.collection("historico_pontos").doc(docId).set(payloadDoc, { merge: true });
+            } else if (horaGravacao !== "-") {
+                await db.collection("historico_pontos").add(payloadDoc);
             }
         }
 
+        fecharModalAjuste();
         exibirAlertaTop("Ajuste Realizado", `O dia <strong>${dataAlvoOriginal}</strong> foi atualizado com sucesso.`);
         setTimeout(() => {
             filtrarRelatorioTela();
-        }, 150);
+        }, 200);
 
     } catch (err) {
-        console.error("Erro ao salvar ajuste:", err);
+        console.error("Erro ao salvar:", err);
+        fecharModalAjuste();
         exibirAlertaTop("⚠️ Erro", "Falha ao gravar os novos horários.");
     } finally {
         if (btn) {
