@@ -976,7 +976,7 @@ async function salvarAjusteHorariosDia(event) {
         btn.innerHTML = "⏳ Gravando Ajuste...";
     }
 
-    // 1. Fecha o modal da tela
+    // Fecha o modal imediatamente
     const modalEl = document.getElementById('modalEditarDiaPonto');
     if (modalEl) {
         const mInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
@@ -1007,14 +1007,21 @@ async function salvarAjusteHorariosDia(event) {
                 const anoStr = cur.getFullYear();
                 const dataFormatada = `${diaStr}/${mesStr}/${anoStr}`;
                 
+                // Busca sem índice composto
                 const snapExistentes = await db.collection("historico_pontos")
                     .where("empresaEmail", "==", PREFIXO_EMPRESA)
-                    .where("colaboradorId", "==", String(colabId))
-                    .where("data", "==", dataFormatada)
                     .get();
 
-                if (!snapExistentes.empty) {
-                    for (let doc of snapExistentes.docs) {
+                let docsParaAtualizar = [];
+                snapExistentes.forEach(doc => {
+                    const d = doc.data();
+                    if (String(d.colaboradorId) === String(colabId) && d.data === dataFormatada) {
+                        docsParaAtualizar.push(doc.id);
+                    }
+                });
+
+                if (docsParaAtualizar.length > 0) {
+                    for (let docId of docsParaAtualizar) {
                         const payloadUpdate = {
                             statusDia: statusDiaEscolhido,
                             horasAbono: "",
@@ -1024,7 +1031,7 @@ async function salvarAjusteHorariosDia(event) {
                             horaFimBh: ""
                         };
                         if (observacaoTexto !== "") payloadUpdate.observacao = observacaoTexto;
-                        await db.collection("historico_pontos").doc(doc.id).set(payloadUpdate, { merge: true });
+                        await db.collection("historico_pontos").doc(docId).set(payloadUpdate, { merge: true });
                     }
                 } else {
                     await db.collection("historico_pontos").add({
@@ -1056,19 +1063,20 @@ async function salvarAjusteHorariosDia(event) {
             statusDiaEscolhido = "EDITADO";
         }
 
+        // Busca sem índice composto: apenas por empresa e filtra na memória
         const snapExistentes = await db.collection("historico_pontos")
             .where("empresaEmail", "==", PREFIXO_EMPRESA)
-            .where("colaboradorId", "==", String(colabId))
-            .where("data", "==", dataAlvoOriginal)
             .get();
 
         const mapaDocExistente = {};
         let docGenericoId = null;
         snapExistentes.forEach(doc => {
             const d = doc.data();
-            mapaDocExistente[d.tipo] = doc.id;
-            if (d.tipo === "Registro Especial") {
-                docGenericoId = doc.id;
+            if (String(d.colaboradorId) === String(colabId) && d.data === dataAlvoOriginal) {
+                mapaDocExistente[d.tipo] = doc.id;
+                if (d.tipo === "Registro Especial") {
+                    docGenericoId = doc.id;
+                }
             }
         });
 
@@ -1114,7 +1122,6 @@ async function salvarAjusteHorariosDia(event) {
                     try {
                         await db.collection("historico_pontos").doc(docId).delete();
                     } catch(eDel) {
-                        // Se não tiver permissão para excluir, apenas limpa a hora
                         await db.collection("historico_pontos").doc(docId).set({ hora: "-" }, { merge: true });
                     }
                 }
@@ -1148,13 +1155,12 @@ async function salvarAjusteHorariosDia(event) {
         }
 
         exibirAlertaTop("Ajuste Realizado", `O dia <strong>${dataAlvoOriginal}</strong> foi atualizado com sucesso.`);
-        // Recarrega a tabela de forma segura
         setTimeout(() => {
             filtrarRelatorioTela();
         }, 150);
 
     } catch (err) {
-        console.error("Erro detalhado ao salvar ajuste:", err);
+        console.error("Erro ao salvar ajuste:", err);
         exibirAlertaTop("⚠️ Erro", "Falha ao gravar os novos horários.");
     } finally {
         if (btn) {
@@ -1749,8 +1755,8 @@ async function exportarPontosExcel() {
         { s: { r: idxTrab, c: 6 }, e: { r: idxTrab, c: 8 } }, 
         { s: { r: idxSaldo, c: 0 }, e: { r: idxSaldo, c: 5 } }, 
         { s: { r: idxSaldo, c: 6 }, e: { r: idxSaldo, c: 8 } }, 
-        { s: { r: idxFolgaBh, c: 0 }, e: { r: idxFolgaBh, c: 5 } }, 
-        { s: { r: idxFolgaBh, c: 6 }, e: { r: idxFolgaBh, c: 8 } }, 
+        { s: { r: idxFolgaBh, c: 0 }, e: { r: idxFolgaBh, c: 3 } }, 
+        { s: { r: idxFolgaBh, c: 4 }, e: { r: idxFolgaBh, c: 5 } }, 
         { s: { r: idxDeclaracao, c: 0 }, e: { r: idxDeclaracao, c: 8 } }, 
         { s: { r: idxLinhaAssinatura, c: 2 }, e: { r: idxLinhaAssinatura, c: 6 } }
     ];
