@@ -630,7 +630,7 @@ function consolidarLogsBrutos(logsArray) {
         let minutosTrabalhados = 0;
         const mEntrada = bolarTempoParaMinutos(r.entrada);
         
-        // Blindagem essencial: 00:00, vazio ou "-" em intervalo de almoço é nulo (não houve almoço)
+        // 00:00, vazio ou "-" em intervalo de almoço é nulo (não houve almoço)
         let mAlmIda = bolarTempoParaMinutos(r.almocoIda);
         let mAlmVolta = bolarTempoParaMinutos(r.almocoVolta);
         if (r.almocoIda === "00:00" || r.almocoIda === "-" || r.almocoIda === "") mAlmIda = null;
@@ -695,7 +695,7 @@ function consolidarLogsBrutos(logsArray) {
                 }
             }
 
-            // 2. Folga BH Integral: não soma como trabalhado físico, apura débito no banco
+            // 2. Folga BH Integral: apura débito no banco de horas
             if (r.statusDia === "FOLGA_BH") {
                 r.minutosFolgaBhNum = cargaObrigatoriaDoDia;
                 minutosTrabalhados = 0;
@@ -984,6 +984,12 @@ async function salvarAjusteHorariosDia(event) {
     const btn = document.getElementById("btnSalvarAjusteDia");
     btn.disabled = true;
     btn.innerHTML = "⏳ Gravando Ajuste...";
+
+    // 1. Fecha o modal imediatamente para evitar travamento na tela
+    const modalEl = document.getElementById('modalEditarDiaPonto');
+    const mInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
+    if (mInstance) mInstance.hide();
+
     try {
         const user = bancoUsuarios.find(u => String(u.id) === String(colabId));
         const nomeColab = user ? user.nome : "Colaborador";
@@ -993,16 +999,12 @@ async function salvarAjusteHorariosDia(event) {
             const dataFimIso = document.getElementById("ajusteDataFimPeriodo").value;
             if (!dataInicioIso || !dataFimIso) {
                 exibirAlertaTop("⚠️ Datas Inválidas", "Por favor, selecione as datas de início e término do período.");
-                btn.disabled = false;
-                btn.innerHTML = "💾 Salvar Ajuste";
                 return;
             }
             const dInicio = new Date(dataInicioIso + "T00:00:00");
             const dFim = new Date(dataFimIso + "T00:00:00");
             if (dInicio > dFim) {
                 exibirAlertaTop("⚠️ Período Incoerente", "A data de início não pode ser maior que a data de término.");
-                btn.disabled = false;
-                btn.innerHTML = "💾 Salvar Ajuste";
                 return;
             }
             let cur = new Date(dInicio);
@@ -1049,10 +1051,6 @@ async function salvarAjusteHorariosDia(event) {
                 }
                 cur.setDate(cur.getDate() + 1);
             }
-            
-            const modalEl = document.getElementById('modalEditarDiaPonto');
-            const mInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
-            if (mInstance) mInstance.hide();
             
             exibirAlertaTop("Período Atualizado", `O período de <strong>${converterDataIsoParaBr(dataInicioIso)} até ${converterDataIsoParaBr(dataFimIso)}</strong> foi registrado como <strong>${statusDiaEscolhido}</strong> com sucesso!`);
             await filtrarRelatorioTela();
@@ -1144,10 +1142,6 @@ async function salvarAjusteHorariosDia(event) {
                 });
             }
         }
-
-        const modalEl = document.getElementById('modalEditarDiaPonto');
-        const mInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
-        if (mInstance) mInstance.hide();
 
         exibirAlertaTop("Ajuste Realizado", `O dia <strong>${dataAlvoOriginal}</strong> foi atualizado com sucesso.`);
         await filtrarRelatorioTela();
