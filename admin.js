@@ -1023,8 +1023,7 @@ async function salvarAjusteHorariosDia(event) {
                     horaInicioBh: "",
                     horaFimBh: "",
                     observacao: observacaoTexto,
-                    empresaEmail: PREFIXO_EMPRESA,
-                    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                    empresaEmail: PREFIXO_EMPRESA
                 });
                 cur.setDate(cur.getDate() + 1);
             }
@@ -1039,15 +1038,22 @@ async function salvarAjusteHorariosDia(event) {
             statusDiaEscolhido = "EDITADO";
         }
 
-        // Busca com 1 único filtro para evitar erro de índice composto
-        const snapExistentes = await db.collection("historico_pontos").where("empresaEmail", "==", PREFIXO_EMPRESA).get();
-        const mapaDocExistente = {};
-        snapExistentes.forEach(doc => {
-            const d = doc.data();
-            if (String(d.colaboradorId) === String(colabId) && d.data === dataAlvoOriginal) {
-                mapaDocExistente[d.tipo] = doc.id;
-            }
-        });
+        // Mapeia os documentos já existentes para o colaborador nesta data
+        let mapaDocExistente = {};
+        try {
+            const snapExistentes = await db.collection("historico_pontos")
+                .where("empresaEmail", "==", PREFIXO_EMPRESA)
+                .where("colaboradorId", "==", String(colabId))
+                .get();
+            snapExistentes.forEach(doc => {
+                const d = doc.data();
+                if (d.data === dataAlvoOriginal) {
+                    mapaDocExistente[d.tipo] = doc.id;
+                }
+            });
+        } catch(eSnap) {
+            console.warn("Aviso ao mapear documentos:", eSnap);
+        }
 
         const tiposHorarios = [
             { tipo: "Entrada", hora: hEntrada },
@@ -1072,13 +1078,19 @@ async function salvarAjusteHorariosDia(event) {
                 horaFimAtestado: "",
                 horaInicioBh: "",
                 horaFimBh: "",
-                observacao: observacaoTexto,
-                timestamp: firebase.firestore.FieldValue.serverTimestamp()
+                observacao: observacaoTexto
             };
 
+            let gravou = false;
             if (docId) {
-                await db.collection("historico_pontos").doc(docId).set(payloadDoc, { merge: true });
-            } else if (horaGravacao !== "-") {
+                try {
+                    await db.collection("historico_pontos").doc(docId).set(payloadDoc, { merge: true });
+                    gravou = true;
+                } catch(eSet) {
+                    console.warn("Falha no update direto do doc:", eSet);
+                }
+            }
+            if (!gravou && horaGravacao !== "-") {
                 await db.collection("historico_pontos").add(payloadDoc);
             }
         }
@@ -1092,7 +1104,8 @@ async function salvarAjusteHorariosDia(event) {
     } catch (err) {
         console.error("Erro ao salvar:", err);
         fecharModalAjuste();
-        exibirAlertaTop("⚠️ Erro", "Falha ao gravar os novos horários.");
+        const msgErro = err && err.message ? err.message : "Falha ao gravar os novos horários.";
+        exibirAlertaTop("⚠️ Detalhe do Erro", msgErro);
     } finally {
         if (btn) {
             btn.disabled = false;
@@ -1888,7 +1901,7 @@ async function exportarExcelGerencial() {
                     cell.s = { fill: { fgColor: { rgb: "F8FAFC" } }, font: { bold: true, color: { rgb: "334155" }, size: 9.5 }, alignment: { horizontal: "right", vertical: "center" }, border: bordaSuave };
                 } else {
                     let corTexto = "0F172A";
-                    if (R === idxResultadoGeral) corTexto = somaGeralResultado > 0 ? "059669" : (somaGeralResultado < 0 ? "DC2626" : "0F172A");
+                    if (R === idxResultadoGeral) corTexto = somaGeralResultado > 0 ? "059669" : (saldoGeralResultado < 0 ? "DC2626" : "0F172A");
                     if (R === idxFolgaBh) corTexto = "EA580C";
                     cell.s = { fill: { fgColor: { rgb: "FFFFFF" } }, font: { bold: true, color: { rgb: corTexto }, size: 10.5 }, alignment: { horizontal: "center", vertical: "center" }, border: bordaSuave };
                 }
