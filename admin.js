@@ -956,29 +956,33 @@ window.abrirModalEditarDia = function(diaBase64) {
 
 async function salvarAjusteHorariosDia(event) {
     event.preventDefault();
-    const dataAlvoOriginal = document.getElementById("modalAjusteDataVal").value;
-    const colabId = document.getElementById("modalAjusteColabIdVal").value;
-    let statusDiaEscolhido = document.getElementById("ajusteStatusDia").value;
+    const dataAlvoOriginal = (document.getElementById("modalAjusteDataVal") && document.getElementById("modalAjusteDataVal").value) ? document.getElementById("modalAjusteDataVal").value.trim() : "";
+    const colabId = (document.getElementById("modalAjusteColabIdVal") && document.getElementById("modalAjusteColabIdVal").value) ? document.getElementById("modalAjusteColabIdVal").value.trim() : "";
+    let statusDiaEscolhido = (document.getElementById("ajusteStatusDia") && document.getElementById("ajusteStatusDia").value) ? document.getElementById("ajusteStatusDia").value.trim() : "NORMAL";
 
-    const hEntrada = document.getElementById("ajusteEntrada").value;
-    let hAlmIda = document.getElementById("ajusteAlmIda").value;
-    let hAlmVolta = document.getElementById("ajusteAlmVolta").value;
-    const hSaida = document.getElementById("ajusteSaida").value;
+    const hEntrada = (document.getElementById("ajusteEntrada") && document.getElementById("ajusteEntrada").value) ? document.getElementById("ajusteEntrada").value.trim() : "";
+    let hAlmIda = (document.getElementById("ajusteAlmIda") && document.getElementById("ajusteAlmIda").value) ? document.getElementById("ajusteAlmIda").value.trim() : "";
+    let hAlmVolta = (document.getElementById("ajusteAlmVolta") && document.getElementById("ajusteAlmVolta").value) ? document.getElementById("ajusteAlmVolta").value.trim() : "";
+    const hSaida = (document.getElementById("ajusteSaida") && document.getElementById("ajusteSaida").value) ? document.getElementById("ajusteSaida").value.trim() : "";
 
     if (hAlmIda === "00:00") hAlmIda = "";
     if (hAlmVolta === "00:00") hAlmVolta = "";
 
-    const horasAbonoInput = document.getElementById("ajusteHorasAbono") ? document.getElementById("ajusteHorasAbono").value : "";
-    const observacaoTexto = document.getElementById("ajusteObservacaoTexto") ? document.getElementById("ajusteObservacaoTexto").value.trim() : "";
+    const horasAbonoInput = (document.getElementById("ajusteHorasAbono") && document.getElementById("ajusteHorasAbono").value) ? document.getElementById("ajusteHorasAbono").value.trim() : "";
+    const observacaoTexto = (document.getElementById("ajusteObservacaoTexto") && document.getElementById("ajusteObservacaoTexto").value) ? document.getElementById("ajusteObservacaoTexto").value.trim() : "";
 
     const btn = document.getElementById("btnSalvarAjusteDia");
-    btn.disabled = true;
-    btn.innerHTML = "⏳ Gravando Ajuste...";
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = "⏳ Gravando Ajuste...";
+    }
 
     // Fecha o modal imediatamente para evitar travamento na tela
     const modalEl = document.getElementById('modalEditarDiaPonto');
-    const mInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
-    if (mInstance) mInstance.hide();
+    if (modalEl) {
+        const mInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
+        if (mInstance) mInstance.hide();
+    }
 
     try {
         const user = bancoUsuarios.find(u => String(u.id) === String(colabId));
@@ -1004,7 +1008,6 @@ async function salvarAjusteHorariosDia(event) {
                 const anoStr = cur.getFullYear();
                 const dataFormatada = `${diaStr}/${mesStr}/${anoStr}`;
                 
-                // Busca sem exigir índice composto (busca apenas por empresa e filtra data em memória)
                 const snapExistentes = await db.collection("historico_pontos")
                     .where("empresaEmail", "==", PREFIXO_EMPRESA)
                     .get();
@@ -1028,7 +1031,7 @@ async function salvarAjusteHorariosDia(event) {
                             horaFimBh: ""
                         };
                         if (observacaoTexto !== "") payloadUpdate.observacao = observacaoTexto;
-                        await db.collection("historico_pontos").doc(docId).update(payloadUpdate);
+                        await db.collection("historico_pontos").doc(docId).set(payloadUpdate, { merge: true });
                     }
                 } else {
                     await db.collection("historico_pontos").add({
@@ -1060,7 +1063,6 @@ async function salvarAjusteHorariosDia(event) {
             statusDiaEscolhido = "EDITADO";
         }
 
-        // Busca sem exigir índice composto
         const snapExistentes = await db.collection("historico_pontos")
             .where("empresaEmail", "==", PREFIXO_EMPRESA)
             .get();
@@ -1102,7 +1104,7 @@ async function salvarAjusteHorariosDia(event) {
                     payloadDoc.observacao = observacaoTexto;
                 }
                 if (docId) {
-                    await db.collection("historico_pontos").doc(docId).update(payloadDoc);
+                    await db.collection("historico_pontos").doc(docId).set(payloadDoc, { merge: true });
                 } else {
                     await db.collection("historico_pontos").add({
                         colaboradorId: String(colabId),
@@ -1132,7 +1134,7 @@ async function salvarAjusteHorariosDia(event) {
                 observacao: observacaoTexto
             };
             if (docGenericoId) {
-                await db.collection("historico_pontos").doc(docGenericoId).update(payloadGen);
+                await db.collection("historico_pontos").doc(docGenericoId).set(payloadGen, { merge: true });
             } else {
                 await db.collection("historico_pontos").add({
                     colaboradorId: String(colabId),
@@ -1153,8 +1155,10 @@ async function salvarAjusteHorariosDia(event) {
         console.error("Erro ao salvar ajuste de ponto:", err);
         exibirAlertaTop("⚠️ Erro", "Falha ao gravar os novos horários.");
     } finally {
-        btn.disabled = false;
-        btn.innerHTML = "💾 Salvar Ajuste";
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = "💾 Salvar Ajuste";
+        }
     }
 }
 
