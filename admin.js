@@ -572,7 +572,7 @@ async function puxarLogsEFiltrar() {
 }
 
 function consolidarLogsBrutos(logsArray) {
-    // Garante que o ajuste manual mais recente sobrescreva registros antigos na memória
+    // Ordena do mais antigo para o mais recente para que o ajuste manual recente sobrescreva batidas antigas
     logsArray.sort((a, b) => {
         const tA = (a.timestamp && typeof a.timestamp.toMillis === 'function') ? a.timestamp.toMillis() : (a.timestamp ? Number(a.timestamp) : 0);
         const tB = (b.timestamp && typeof b.timestamp.toMillis === 'function') ? b.timestamp.toMillis() : (b.timestamp ? Number(b.timestamp) : 0);
@@ -626,7 +626,7 @@ function consolidarLogsBrutos(logsArray) {
         if (log.observacao && log.observacao.trim() !== "") {
             espelhosAgrupados[chaveChave].observacoes.push({
                 tipo: log.tipo || "Ajuste Manual",
-                texto: log.observacao
+                texto: log.observacao.substring(0, 300)
             });
         }
     });
@@ -950,7 +950,9 @@ window.abrirModalEditarDia = function(diaBase64) {
     if (campoObs) {
         let textoSalvo = "";
         if (obj.observacoes && obj.observacoes.length > 0) {
-            textoSalvo = obj.observacoes.map(o => o.texto).join(" | ");
+            // Remove repetições para não inchar o texto
+            const unicos = [...new Set(obj.observacoes.map(o => o.texto).filter(t => t && t.trim() !== ""))];
+            textoSalvo = unicos.join(" | ").substring(0, 300);
         }
         campoObs.value = textoSalvo;
     }
@@ -973,7 +975,7 @@ function fecharModalAjuste() {
 }
 
 // ========================================================
-// SALVAMENTO SEGURO E INSTANTÂNEO (SEM TRAVAMENTOS)
+// SALVAMENTO SEGURO, LEVE E BLINDADO CONTRA LIMITE DE BYTES
 // ========================================================
 async function salvarAjusteHorariosDia(event) {
     if (event) event.preventDefault();
@@ -991,7 +993,12 @@ async function salvarAjusteHorariosDia(event) {
     if (hAlmVolta === "00:00") hAlmVolta = "";
 
     const horasAbonoInput = (document.getElementById("ajusteHorasAbono") && document.getElementById("ajusteHorasAbono").value) ? document.getElementById("ajusteHorasAbono").value.trim() : "";
-    const observacaoTexto = (document.getElementById("ajusteObservacaoTexto") && document.getElementById("ajusteObservacaoTexto").value) ? document.getElementById("ajusteObservacaoTexto").value.trim() : "";
+    
+    // Trava de segurança máxima: trunca a observação a 300 caracteres para nunca estourar o limite de 1MB do Firestore
+    let observacaoTexto = (document.getElementById("ajusteObservacaoTexto") && document.getElementById("ajusteObservacaoTexto").value) ? document.getElementById("ajusteObservacaoTexto").value.trim() : "";
+    if (observacaoTexto.length > 300) {
+        observacaoTexto = observacaoTexto.substring(0, 300);
+    }
 
     const btn = document.getElementById("btnSalvarAjusteDia");
     if (btn) {
@@ -1079,7 +1086,6 @@ async function salvarAjusteHorariosDia(event) {
                 timestamp: agoraTimestamp
             };
 
-            // Inserção atômica direta: autorizada sem restrições pelas regras do Firestore
             await db.collection("historico_pontos").add(payloadDoc);
             salvouAlgum = true;
         }
@@ -1909,7 +1915,7 @@ async function exportarExcelGerencial() {
                     cell.s = { fill: { fgColor: { rgb: "F8FAFC" } }, font: { bold: true, color: { rgb: "334155" }, size: 9.5 }, alignment: { horizontal: "right", vertical: "center" }, border: bordaSuave };
                 } else {
                     let corTexto = "0F172A";
-                    if (R === idxResultadoGeral) corTexto = somaGeralResultado > 0 ? "059669" : (somaGeralResultado < 0 ? "DC2626" : "0F172A");
+                    if (R === idxResultadoGeral) corTexto = somaGeralResultado > 0 ? "059669" : (saldoGeralResultado < 0 ? "DC2626" : "0F172A");
                     if (R === idxFolgaBh) corTexto = "EA580C";
                     cell.s = { fill: { fgColor: { rgb: "FFFFFF" } }, font: { bold: true, color: { rgb: corTexto }, size: 10.5 }, alignment: { horizontal: "center", vertical: "center" }, border: bordaSuave };
                 }
