@@ -572,6 +572,13 @@ async function puxarLogsEFiltrar() {
 }
 
 function consolidarLogsBrutos(logsArray) {
+    // Garante que o ajuste manual mais recente sobrescreva registros antigos na memória
+    logsArray.sort((a, b) => {
+        const tA = (a.timestamp && typeof a.timestamp.toMillis === 'function') ? a.timestamp.toMillis() : (a.timestamp ? Number(a.timestamp) : 0);
+        const tB = (b.timestamp && typeof b.timestamp.toMillis === 'function') ? b.timestamp.toMillis() : (b.timestamp ? Number(b.timestamp) : 0);
+        return tA - tB;
+    });
+
     const espelhosAgrupados = {};
     logsArray.forEach(log => {
         if(!log.data || !log.colaboradorId) return; 
@@ -965,6 +972,9 @@ function fecharModalAjuste() {
     document.body.style.removeProperty('overflow');
 }
 
+// ========================================================
+// SALVAMENTO SEGURO E INSTANTÂNEO (SEM TRAVAMENTOS)
+// ========================================================
 async function salvarAjusteHorariosDia(event) {
     if (event) event.preventDefault();
 
@@ -1004,6 +1014,7 @@ async function salvarAjusteHorariosDia(event) {
             const dInicio = new Date(dataInicioIso + "T00:00:00");
             const dFim = new Date(dataFimIso + "T00:00:00");
             let cur = new Date(dInicio);
+            const agoraMillis = Date.now();
             while (cur <= dFim) {
                 const diaStr = String(cur.getDate()).padStart(2, '0');
                 const mesStr = String(cur.getMonth() + 1).padStart(2, '0');
@@ -1023,7 +1034,8 @@ async function salvarAjusteHorariosDia(event) {
                     horaInicioBh: "",
                     horaFimBh: "",
                     observacao: observacaoTexto,
-                    empresaEmail: PREFIXO_EMPRESA
+                    empresaEmail: PREFIXO_EMPRESA,
+                    timestamp: agoraMillis
                 });
                 cur.setDate(cur.getDate() + 1);
             }
@@ -1038,23 +1050,6 @@ async function salvarAjusteHorariosDia(event) {
             statusDiaEscolhido = "EDITADO";
         }
 
-        // Mapeia os documentos já existentes para o colaborador nesta data
-        let mapaDocExistente = {};
-        try {
-            const snapExistentes = await db.collection("historico_pontos")
-                .where("empresaEmail", "==", PREFIXO_EMPRESA)
-                .where("colaboradorId", "==", String(colabId))
-                .get();
-            snapExistentes.forEach(doc => {
-                const d = doc.data();
-                if (d.data === dataAlvoOriginal) {
-                    mapaDocExistente[d.tipo] = doc.id;
-                }
-            });
-        } catch(eSnap) {
-            console.warn("Aviso ao mapear documentos:", eSnap);
-        }
-
         const tiposHorarios = [
             { tipo: "Entrada", hora: hEntrada },
             { tipo: "Almoço Ida", hora: hAlmIda },
@@ -1062,8 +1057,10 @@ async function salvarAjusteHorariosDia(event) {
             { tipo: "Saída", hora: hSaida }
         ];
 
+        const agoraTimestamp = Date.now();
+        let salvouAlgum = false;
+
         for (let item of tiposHorarios) {
-            const docId = mapaDocExistente[item.tipo];
             const horaGravacao = (item.hora && item.hora.trim() !== "") ? item.hora.trim() : "-";
             const payloadDoc = {
                 colaboradorId: String(colabId),
@@ -1078,28 +1075,39 @@ async function salvarAjusteHorariosDia(event) {
                 horaFimAtestado: "",
                 horaInicioBh: "",
                 horaFimBh: "",
-                observacao: observacaoTexto
+                observacao: observacaoTexto,
+                timestamp: agoraTimestamp
             };
 
-            let gravou = false;
-            if (docId) {
-                try {
-                    await db.collection("historico_pontos").doc(docId).set(payloadDoc, { merge: true });
-                    gravou = true;
-                } catch(eSet) {
-                    console.warn("Falha no update direto do doc:", eSet);
-                }
-            }
-            if (!gravou && horaGravacao !== "-") {
-                await db.collection("historico_pontos").add(payloadDoc);
-            }
+            // Inserção atômica direta: autorizada sem restrições pelas regras do Firestore
+            await db.collection("historico_pontos").add(payloadDoc);
+            salvouAlgum = true;
+        }
+
+        if (!salvouAlgum) {
+            await db.collection("historico_pontos").add({
+                colaboradorId: String(colabId),
+                nome: nomeColab,
+                data: dataAlvoOriginal,
+                tipo: "Registro Especial",
+                hora: "-",
+                empresaEmail: PREFIXO_EMPRESA,
+                statusDia: statusDiaEscolhido,
+                horasAbono: horasAbonoInput,
+                horaInicioAtestado: "",
+                horaFimAtestado: "",
+                horaInicioBh: "",
+                horaFimBh: "",
+                observacao: observacaoTexto,
+                timestamp: agoraTimestamp
+            });
         }
 
         fecharModalAjuste();
         exibirAlertaTop("Ajuste Realizado", `O dia <strong>${dataAlvoOriginal}</strong> foi atualizado com sucesso.`);
         setTimeout(() => {
             filtrarRelatorioTela();
-        }, 200);
+        }, 150);
 
     } catch (err) {
         console.error("Erro ao salvar:", err);
@@ -1478,7 +1486,7 @@ async function exportarPontosExcel() {
             textoObsFinal = "Feriado Abonado";
         } else if (r.statusDia === "ATESTADO") {
             textoObsFinal = "Atestado Médico";
-        } else if (r.statusDia === "ATESTADO_PARCIAL" || r.statusDia === "ATESTADO PARCIAL") {
+        } else if (r.statusDia === "ATESTADO PARCIAL" || r.statusDia === "Atestado Parcial (Horas)" || r.statusDia === "ATESTADO_PARCIAL") {
             textoObsFinal = `Atestado Parcial (${r.horasAbono || ''} abonadas)`;
         } else if (r.statusDia === "FERIAS") {
             textoObsFinal = "Férias Abonadas";
@@ -1901,7 +1909,7 @@ async function exportarExcelGerencial() {
                     cell.s = { fill: { fgColor: { rgb: "F8FAFC" } }, font: { bold: true, color: { rgb: "334155" }, size: 9.5 }, alignment: { horizontal: "right", vertical: "center" }, border: bordaSuave };
                 } else {
                     let corTexto = "0F172A";
-                    if (R === idxResultadoGeral) corTexto = somaGeralResultado > 0 ? "059669" : (saldoGeralResultado < 0 ? "DC2626" : "0F172A");
+                    if (R === idxResultadoGeral) corTexto = somaGeralResultado > 0 ? "059669" : (somaGeralResultado < 0 ? "DC2626" : "0F172A");
                     if (R === idxFolgaBh) corTexto = "EA580C";
                     cell.s = { fill: { fgColor: { rgb: "FFFFFF" } }, font: { bold: true, color: { rgb: corTexto }, size: 10.5 }, alignment: { horizontal: "center", vertical: "center" }, border: bordaSuave };
                 }
