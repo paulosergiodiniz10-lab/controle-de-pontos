@@ -370,6 +370,7 @@ async function confirmarEdicaoFicha() {
             await db.collection("usuarios_ponto").doc(u.firebaseId).update(dadosAtualizados);
             Object.assign(u, dadosAtualizados);
 
+            ultimoCacheLogs = { colaboradorId: null, dados: null, timestamp: 0 };
             bootstrap.Modal.getInstance(document.getElementById('modalEditarFicha')).hide();
             renderTabelaComAtualizacao();
             sincronizarFiltrosColaboradores();
@@ -480,6 +481,40 @@ function converterDataIsoParaBr(dataIso) {
     return `${p[2].padStart(2, '0')}/${p[1].padStart(2, '0')}/${p[0]}`;
 }
 
+// ========================================================
+// INTERPRETA DATA DE ADMISSÃO DA FICHA DO COLABORADOR
+// ========================================================
+function obterDataAdmissaoDate(user) {
+    if (!user || !user.dataInicio || user.dataInicio === "-" || user.dataInicio.trim() === "") {
+        return null;
+    }
+    const str = user.dataInicio.trim();
+    // Formato DD/MM/AAAA ou DD/MM/AA
+    if (str.includes('/')) {
+        const p = str.split('/');
+        if (p.length === 3) {
+            const dia = parseInt(p[0], 10);
+            const mes = parseInt(p[1], 10) - 1;
+            let ano = parseInt(p[2], 10);
+            if (ano < 100) ano += 2000;
+            const d = new Date(ano, mes, dia, 0, 0, 0, 0);
+            return isNaN(d.getTime()) ? null : d;
+        }
+    }
+    // Formato AAAA-MM-DD
+    if (str.includes('-')) {
+        const p = str.split('-');
+        if (p.length === 3) {
+            const ano = parseInt(p[0], 10);
+            const mes = parseInt(p[1], 10) - 1;
+            const dia = parseInt(p[2], 10);
+            const d = new Date(ano, mes, dia, 0, 0, 0, 0);
+            return isNaN(d.getTime()) ? null : d;
+        }
+    }
+    return null;
+}
+
 function aplicarFiltroRapido(tipo) {
     const inputInicio = document.getElementById('filtroRelatorioInicio');
     const inputFim = document.getElementById('filtroRelatorioFim');
@@ -555,13 +590,9 @@ function limparSelecaoFiltros() {
     }
 }
 
-// ========================================================
-// BUSCA ULTRA-RÁPIDA DIRETO POR COLABORADOR + CACHE
-// ========================================================
 async function puxarLogsEFiltrar(usarCache = false) {
     const filtroColab = document.getElementById('filtroRelatorioColaborador').value;
 
-    // Se solicitado pelo botão de exportação e já buscamos nos últimos 2 minutos, reaproveita na hora
     if (usarCache && ultimoCacheLogs.colaboradorId === filtroColab && ultimoCacheLogs.dados && (Date.now() - ultimoCacheLogs.timestamp < 120000)) {
         return JSON.parse(JSON.stringify(ultimoCacheLogs.dados));
     }
@@ -572,7 +603,6 @@ async function puxarLogsEFiltrar(usarCache = false) {
     try {
         let queryRef;
         if (filtroColab && filtroColab !== "todos") {
-            // Consulta indexada por campo único: traz apenas os dados do colaborador selecionado (instantâneo)
             queryRef = db.collection("historico_pontos").where("colaboradorId", "==", String(filtroColab));
         } else {
             queryRef = db.collection("historico_pontos").where("empresaEmail", "==", PREFIXO_EMPRESA);
@@ -604,7 +634,6 @@ async function puxarLogsEFiltrar(usarCache = false) {
 }
 
 function consolidarLogsBrutos(logsArray) {
-    // Ordena do mais antigo para o mais recente para que o ajuste manual recente sobrescreva batidas antigas
     logsArray.sort((a, b) => {
         const tA = (a.timestamp && typeof a.timestamp.toMillis === 'function') ? a.timestamp.toMillis() : (a.timestamp ? Number(a.timestamp) : 0);
         const tB = (b.timestamp && typeof b.timestamp.toMillis === 'function') ? b.timestamp.toMillis() : (b.timestamp ? Number(b.timestamp) : 0);
@@ -634,6 +663,7 @@ function consolidarLogsBrutos(logsArray) {
                 horasExtras: "00:00",
                 classeCorExtra: "text-muted",
                 isDomingo: false,
+                isPreAdmissao: false,
                 statusDia: "NORMAL",
                 observacoes: [],
                 horaInicioAtestado: log.horaInicioAtestado || "",
@@ -705,10 +735,24 @@ function consolidarLogsBrutos(logsArray) {
 
         const partesData = r.data.split('/');
         if (partesData.length === 3) {
-            const objetoData = new Date(partesData[2], partesData[1] - 1, partesData[0]);
+            const objetoData = new Date(partesData[2], partesData[1] - 1, partesData[0], 0, 0, 0, 0);
             const diaDaSemana = objetoData.getDay(); 
             r.isDomingo = (diaDaSemana === 0);
             const user = bancoUsuarios.find(u => String(u.id) === String(r.colaboradorId));
+            const dataAdmissao = obterDataAdmissaoDate(user);
+
+            // Se o registro for anterior à data de admissão do colaborador, zera a obrigação de jornada
+            if (dataAdmissao && objetoData < dataAdmissao) {
+                r.isPreAdmissao = true;
+                r.minutosTrabalhadosNum = minutosTrabalhados;
+                r.horasTrabalhadas = formatarMinutosParaString(minutosTrabalhados);
+                r.minutosEsperadosNum = 0;
+                r.minutosExtrasNum = minutosTrabalhados;
+                r.horasExtras = minutosTrabalhados > 0 ? `+${formatarMinutosParaString(minutosTrabalhados)}` : "00:00";
+                r.classeCorExtra = minutosTrabalhados > 0 ? "text-success" : "text-secondary";
+                return;
+            }
+
             const cargaSegSex = user ? (user.cargaSegSex || "08:00") : "08:00";
             const cargaSab = user ? (user.cargaSab || "04:00") : "04:00";
             const cargaDom = user ? (user.cargaDom || "00:00") : "00:00";
@@ -806,6 +850,8 @@ function preencherCalendarioCompleto(dadosConsolidados, dataInicioStr, dataFimSt
     const cargaSegSex = user ? (user.cargaSegSex || "08:00") : "08:00";
     const cargaSab = user ? (user.cargaSab || "04:00") : "04:00";
     const cargaDom = user ? (user.cargaDom || "00:00") : "00:00";
+    const dataAdmissao = obterDataAdmissaoDate(user);
+
     const dInicio = new Date(dataInicioStr + "T00:00:00");
     const dFim = new Date(dataFimStr + "T00:00:00");
     const mapaExistentes = {};
@@ -820,20 +866,27 @@ function preencherCalendarioCompleto(dadosConsolidados, dataInicioStr, dataFimSt
         const anoStr = cur.getFullYear();
         const dataFormatada = `${diaStr}/${mesStr}/${anoStr}`;
         const diaDaSemana = cur.getDay();
+
         if (mapaExistentes[dataFormatada]) {
             listaCompleta.push(mapaExistentes[dataFormatada]);
         } else {
+            // Verifica se a data do calendário é anterior à data de admissão do colaborador
+            const isAntesAdmissao = (dataAdmissao && cur < dataAdmissao);
+
             let cargaObrigatoria = 0;
-            if (diaDaSemana === 6) { 
-                const minCalc = bolarTempoParaMinutos(cargaSab);
-                cargaObrigatoria = minCalc !== null ? minCalc : 240;
-            } else if (diaDaSemana === 0) { 
-                const minCalc = bolarTempoParaMinutos(cargaDom);
-                cargaObrigatoria = minCalc !== null ? minCalc : 0;
-            } else { 
-                const minCalc = bolarTempoParaMinutos(cargaSegSex);
-                cargaObrigatoria = minCalc !== null ? minCalc : 480;
+            if (!isAntesAdmissao) {
+                if (diaDaSemana === 6) { 
+                    const minCalc = bolarTempoParaMinutos(cargaSab);
+                    cargaObrigatoria = minCalc !== null ? minCalc : 240;
+                } else if (diaDaSemana === 0) { 
+                    const minCalc = bolarTempoParaMinutos(cargaDom);
+                    cargaObrigatoria = minCalc !== null ? minCalc : 0;
+                } else { 
+                    const minCalc = bolarTempoParaMinutos(cargaSegSex);
+                    cargaObrigatoria = minCalc !== null ? minCalc : 480;
+                }
             }
+
             let strExtras = "00:00";
             let corExtras = "text-secondary";
             let minExtras = 0;
@@ -842,6 +895,7 @@ function preencherCalendarioCompleto(dadosConsolidados, dataInicioStr, dataFimSt
                 strExtras = `-${formatarMinutosParaString(cargaObrigatoria)}`;
                 corExtras = "text-danger";
             }
+
             listaCompleta.push({
                 data: dataFormatada,
                 colaboradorId: String(colaboradorId),
@@ -859,6 +913,7 @@ function preencherCalendarioCompleto(dadosConsolidados, dataInicioStr, dataFimSt
                 horasExtras: strExtras,
                 classeCorExtra: corExtras,
                 isDomingo: (diaDaSemana === 0),
+                isPreAdmissao: isAntesAdmissao,
                 statusDia: "NORMAL",
                 observacoes: [],
                 horaInicioAtestado: "",
@@ -1271,7 +1326,9 @@ async function filtrarRelatorioTela() {
             btnObsHtml = `<button class="btn btn-sm btn-danger fw-bold shadow-sm" style="font-size: 0.7rem; padding: 3px 8px; animation: pulse 2s infinite;" onclick="abrirModalLerObs('${obsStrBase64}')">🔔 Ver Obs.</button>`;
         }
         let tagStatusHtml = "";
-        if (r.statusDia === "FERIADO") {
+        if (r.isPreAdmissao && r.statusDia === "NORMAL") {
+            tagStatusHtml = ` <span class="badge bg-secondary bg-opacity-25 text-secondary border ms-1" style="font-size:0.65rem;">PRÉ-ADMISSÃO</span>`;
+        } else if (r.statusDia === "FERIADO") {
             tagStatusHtml = ` <span class="badge text-white border ms-1" style="font-size:0.65rem; background-color: #6f42c1 !important;">FERIADO</span>`;
         } else if (r.statusDia === "ATESTADO") {
             tagStatusHtml = ` <span class="badge bg-warning text-dark border ms-1" style="font-size:0.65rem;">ATESTADO</span>`;
@@ -1294,7 +1351,7 @@ async function filtrarRelatorioTela() {
         }
         const objDiaBase64 = btoa(unescape(encodeURIComponent(JSON.stringify(r))));
         const tr = document.createElement('tr');
-        if (r.isDomingo || (r.statusDia && r.statusDia !== "NORMAL")) {
+        if (r.isDomingo || r.isPreAdmissao || (r.statusDia && r.statusDia !== "NORMAL")) {
             tr.setAttribute('style', 'background-color: #f8fafc;');
         }
 
@@ -1518,6 +1575,8 @@ async function exportarPontosExcel() {
                 if (observacoesTextos.length > 0) {
                     textoObsFinal = observacoesTextos.join(" | ");
                 }
+            } else if (r.isPreAdmissao && r.statusDia === "NORMAL") {
+                textoObsFinal = "Período Anterior à Admissão";
             } else if (r.statusDia === "FERIADO") {
                 textoObsFinal = "Feriado Abonado";
             } else if (r.statusDia === "ATESTADO") {
@@ -1537,7 +1596,9 @@ async function exportarPontosExcel() {
             }
 
             let tagExcel = "";
-            if (r.statusDia === "FOLGA_BH") {
+            if (r.isPreAdmissao && r.statusDia === "NORMAL") {
+                tagExcel = " (PRÉ-ADMISSÃO)";
+            } else if (r.statusDia === "FOLGA_BH") {
                 tagExcel = " (FOLGA BH)";
             } else if (r.statusDia === "FOLGA_BH_PARCIAL") {
                 tagExcel = ` (FOLGA BH ${r.horasAbono || ''})`;
@@ -1657,7 +1718,8 @@ async function exportarPontosExcel() {
                 } else if (R === 10) {
                     cell.s = estiloHeaderTabela;
                 } else if (R >= 11 && R < idxTitle - 1) {
-                    const isDSR = String(matrizPlanilha[R][0] || "").includes("DOM");
+                    const strCelulaData = String(matrizPlanilha[R][0] || "");
+                    const isDSR = strCelulaData.includes("DOM") || strCelulaData.includes("PRÉ-ADMISSÃO");
                     const isPar = (R % 2 === 0);
                     if (isDSR) {
                         cell.s = JSON.parse(JSON.stringify(estiloLinhaDSR));
@@ -1750,7 +1812,7 @@ async function exportarPontosExcel() {
         ];
 
         worksheet['!cols'] = [
-            { wch: 18 },
+            { wch: 22 },
             { wch: 36 },
             { wch: 10 },
             { wch: 12 },
