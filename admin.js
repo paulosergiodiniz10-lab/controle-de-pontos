@@ -489,7 +489,6 @@ function obterDataAdmissaoDate(user) {
         return null;
     }
     const str = user.dataInicio.trim();
-    // Formato DD/MM/AAAA ou DD/MM/AA
     if (str.includes('/')) {
         const p = str.split('/');
         if (p.length === 3) {
@@ -501,7 +500,6 @@ function obterDataAdmissaoDate(user) {
             return isNaN(d.getTime()) ? null : d;
         }
     }
-    // Formato AAAA-MM-DD
     if (str.includes('-')) {
         const p = str.split('-');
         if (p.length === 3) {
@@ -741,7 +739,7 @@ function consolidarLogsBrutos(logsArray) {
             const user = bancoUsuarios.find(u => String(u.id) === String(r.colaboradorId));
             const dataAdmissao = obterDataAdmissaoDate(user);
 
-            // Se o registro for anterior à data de admissão do colaborador, zera a obrigação de jornada
+            // Regra soberana: se o dia é anterior à data de admissão, zera tudo (mesmo se o RH tinha lançado FOLGA antes)
             if (dataAdmissao && objetoData < dataAdmissao) {
                 r.isPreAdmissao = true;
                 r.minutosTrabalhadosNum = minutosTrabalhados;
@@ -870,7 +868,6 @@ function preencherCalendarioCompleto(dadosConsolidados, dataInicioStr, dataFimSt
         if (mapaExistentes[dataFormatada]) {
             listaCompleta.push(mapaExistentes[dataFormatada]);
         } else {
-            // Verifica se a data do calendário é anterior à data de admissão do colaborador
             const isAntesAdmissao = (dataAdmissao && cur < dataAdmissao);
 
             let cargaObrigatoria = 0;
@@ -1326,7 +1323,7 @@ async function filtrarRelatorioTela() {
             btnObsHtml = `<button class="btn btn-sm btn-danger fw-bold shadow-sm" style="font-size: 0.7rem; padding: 3px 8px; animation: pulse 2s infinite;" onclick="abrirModalLerObs('${obsStrBase64}')">🔔 Ver Obs.</button>`;
         }
         let tagStatusHtml = "";
-        if (r.isPreAdmissao && r.statusDia === "NORMAL") {
+        if (r.isPreAdmissao) {
             tagStatusHtml = ` <span class="badge bg-secondary bg-opacity-25 text-secondary border ms-1" style="font-size:0.65rem;">PRÉ-ADMISSÃO</span>`;
         } else if (r.statusDia === "FERIADO") {
             tagStatusHtml = ` <span class="badge text-white border ms-1" style="font-size:0.65rem; background-color: #6f42c1 !important;">FERIADO</span>`;
@@ -1570,13 +1567,13 @@ async function exportarPontosExcel() {
             }
 
             let textoObsFinal = "Sem observação";
-            if (r.observacoes && r.observacoes.length > 0) {
+            if (r.isPreAdmissao) {
+                textoObsFinal = "Período Anterior à Admissão";
+            } else if (r.observacoes && r.observacoes.length > 0) {
                 const observacoesTextos = r.observacoes.map(o => o.texto).filter(t => t && t.trim() !== "");
                 if (observacoesTextos.length > 0) {
                     textoObsFinal = observacoesTextos.join(" | ");
                 }
-            } else if (r.isPreAdmissao && r.statusDia === "NORMAL") {
-                textoObsFinal = "Período Anterior à Admissão";
             } else if (r.statusDia === "FERIADO") {
                 textoObsFinal = "Feriado Abonado";
             } else if (r.statusDia === "ATESTADO") {
@@ -1596,7 +1593,7 @@ async function exportarPontosExcel() {
             }
 
             let tagExcel = "";
-            if (r.isPreAdmissao && r.statusDia === "NORMAL") {
+            if (r.isPreAdmissao) {
                 tagExcel = " (PRÉ-ADMISSÃO)";
             } else if (r.statusDia === "FOLGA_BH") {
                 tagExcel = " (FOLGA BH)";
