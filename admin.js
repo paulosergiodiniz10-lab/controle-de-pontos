@@ -17,6 +17,13 @@ let usuarioSelecionadoId = null;
 let bancoUsuarios = [];
 let dadosEmpresaAtiva = {};
 
+// Cache em memória para evitar requisições repetidas na nuvem ao exportar Excel
+let ultimoCacheLogs = {
+    colaboradorId: null,
+    dados: null,
+    timestamp: 0
+};
+
 document.addEventListener("DOMContentLoaded", async () => {
     if (!sessionStorage.getItem("admin_autenticado") || !PREFIXO_EMPRESA) {
         window.location.href = "login-admin.html"; 
@@ -518,6 +525,8 @@ function limparFiltrosRelatorio() {
     const tabelaBody = document.getElementById('tabelaRelatoriosBody');
     const tabelaGerencialBody = document.getElementById('tabelaGerencialBody');
 
+    ultimoCacheLogs = { colaboradorId: null, dados: null, timestamp: 0 };
+
     if (selectColab) selectColab.value = "todos";
     if (inputInicio) inputInicio.value = "";
     if (inputFim) inputFim.value = "";
@@ -546,21 +555,36 @@ function limparSelecaoFiltros() {
     }
 }
 
-async function puxarLogsEFiltrar() {
+// ========================================================
+// BUSCA ULTRA-RÁPIDA DIRETO POR COLABORADOR + CACHE
+// ========================================================
+async function puxarLogsEFiltrar(usarCache = false) {
     const filtroColab = document.getElementById('filtroRelatorioColaborador').value;
+
+    // Se solicitado pelo botão de exportação e já buscamos nos últimos 2 minutos, reaproveita na hora
+    if (usarCache && ultimoCacheLogs.colaboradorId === filtroColab && ultimoCacheLogs.dados && (Date.now() - ultimoCacheLogs.timestamp < 120000)) {
+        return JSON.parse(JSON.stringify(ultimoCacheLogs.dados));
+    }
+
     const btn = document.getElementById('btnFiltrarTela');
-    if(btn) { btn.disabled = true; btn.innerHTML = "⏳ Buscando na Nuvem..."; }
+    if(btn) { btn.disabled = true; btn.innerHTML = "⏳ Buscando..."; }
     let dadosBrutosNuvem = [];
     try {
-        const queryRef = db.collection("historico_pontos").where("empresaEmail", "==", PREFIXO_EMPRESA);
+        let queryRef;
+        if (filtroColab && filtroColab !== "todos") {
+            // Consulta indexada por campo único: traz apenas os dados do colaborador selecionado (instantâneo)
+            queryRef = db.collection("historico_pontos").where("colaboradorId", "==", String(filtroColab));
+        } else {
+            queryRef = db.collection("historico_pontos").where("empresaEmail", "==", PREFIXO_EMPRESA);
+        }
+
         const snapshot = await queryRef.get();
 
         snapshot.forEach(doc => {
             const data = doc.data();
             if (!data.data) return; 
-            if (filtroColab === "todos" || String(data.colaboradorId) === String(filtroColab)) {
-                dadosBrutosNuvem.push(data);
-            }
+            if (data.empresaEmail && data.empresaEmail !== PREFIXO_EMPRESA) return;
+            dadosBrutosNuvem.push(data);
         });
 
     } catch (error) {
@@ -568,7 +592,15 @@ async function puxarLogsEFiltrar() {
     } finally {
         if(btn) { btn.disabled = false; btn.innerHTML = "🔍 Filtrar na Tela"; }
     }
-    return consolidarLogsBrutos(dadosBrutosNuvem);
+
+    const consolidados = consolidarLogsBrutos(dadosBrutosNuvem);
+    ultimoCacheLogs = {
+        colaboradorId: filtroColab,
+        dados: JSON.parse(JSON.stringify(consolidados)),
+        timestamp: Date.now()
+    };
+
+    return consolidados;
 }
 
 function consolidarLogsBrutos(logsArray) {
@@ -950,7 +982,6 @@ window.abrirModalEditarDia = function(diaBase64) {
     if (campoObs) {
         let textoSalvo = "";
         if (obj.observacoes && obj.observacoes.length > 0) {
-            // Remove repetições para não inchar o texto
             const unicos = [...new Set(obj.observacoes.map(o => o.texto).filter(t => t && t.trim() !== ""))];
             textoSalvo = unicos.join(" | ").substring(0, 300);
         }
@@ -974,9 +1005,6 @@ function fecharModalAjuste() {
     document.body.style.removeProperty('overflow');
 }
 
-// ========================================================
-// SALVAMENTO SEGURO, LEVE E BLINDADO CONTRA LIMITE DE BYTES
-// ========================================================
 async function salvarAjusteHorariosDia(event) {
     if (event) event.preventDefault();
 
@@ -994,7 +1022,6 @@ async function salvarAjusteHorariosDia(event) {
 
     const horasAbonoInput = (document.getElementById("ajusteHorasAbono") && document.getElementById("ajusteHorasAbono").value) ? document.getElementById("ajusteHorasAbono").value.trim() : "";
     
-    // Trava de segurança máxima: trunca a observação a 300 caracteres para nunca estourar o limite de 1MB do Firestore
     let observacaoTexto = (document.getElementById("ajusteObservacaoTexto") && document.getElementById("ajusteObservacaoTexto").value) ? document.getElementById("ajusteObservacaoTexto").value.trim() : "";
     if (observacaoTexto.length > 300) {
         observacaoTexto = observacaoTexto.substring(0, 300);
@@ -1047,6 +1074,7 @@ async function salvarAjusteHorariosDia(event) {
                 cur.setDate(cur.getDate() + 1);
             }
             
+            ultimoCacheLogs = { colaboradorId: null, dados: null, timestamp: 0 };
             fecharModalAjuste();
             exibirAlertaTop("Período Atualizado", `Período registrado como <strong>${statusDiaEscolhido}</strong> com sucesso!`);
             filtrarRelatorioTela();
@@ -1109,6 +1137,7 @@ async function salvarAjusteHorariosDia(event) {
             });
         }
 
+        ultimoCacheLogs = { colaboradorId: null, dados: null, timestamp: 0 };
         fecharModalAjuste();
         exibirAlertaTop("Ajuste Realizado", `O dia <strong>${dataAlvoOriginal}</strong> foi atualizado com sucesso.`);
         setTimeout(() => {
@@ -1146,7 +1175,7 @@ function consolidarPorMes(dadosConsolidados) {
             mapaMeses[chaveMes] = {
                 chave: chaveMes,
                 rotulo: rotuloMes,
-                colaborador: r.nome,
+                colaborador: r.nome || "Colaborador",
                 minutosTrabalhadosNum: 0,
                 minutosEsperadosNum: 0,
                 minutosExtrasPositivosNum: 0,
@@ -1187,7 +1216,7 @@ async function filtrarRelatorioTela() {
         if (tabelaGerencialBody) tabelaGerencialBody.innerHTML = `<tr><td colspan="6" class="text-center text-muted small py-4">⚠️ Por favor, selecione um colaborador específico para carregar o relatório.</td></tr>`;
         return;
     }
-    let dadosConsolidados = await puxarLogsEFiltrar();
+    let dadosConsolidados = await puxarLogsEFiltrar(false);
     if (filtroInicio && filtroFim) {
         dadosConsolidados = preencherCalendarioCompleto(dadosConsolidados, filtroInicio, filtroFim, filtroColab);
     } else {
@@ -1232,7 +1261,6 @@ async function filtrarRelatorioTela() {
         acumuladorTrabalhadas += r.minutosTrabalhadosNum;
         acumuladorEsperadas += r.minutosEsperadosNum;
 
-        // Soma individual de Folga BH (Integral + Parcial)
         if (r.minutosFolgaBhNum) {
             acumuladorFolgaBh += r.minutosFolgaBhNum;
         }
@@ -1401,338 +1429,345 @@ async function exportarPontosExcel() {
         exibirAlertaTop("Selecione um Colaborador", "Por favor, defina qual colaborador deseja exportar para gerar o arquivo formatado.");
         return;
     }
-    let dadosParaPlanilha = await puxarLogsEFiltrar();
 
-    const filtroInicio = document.getElementById('filtroRelatorioInicio').value;
-    const filtroFim = document.getElementById('filtroRelatorioFim').value;
+    try {
+        let dadosParaPlanilha = await puxarLogsEFiltrar(true);
 
-    if (filtroInicio && filtroFim) {
-        dadosParaPlanilha = preencherCalendarioCompleto(dadosParaPlanilha, filtroInicio, filtroFim, filtroColab);
-    } else {
-        if (filtroInicio) {
-            const dInicio = new Date(filtroInicio + "T00:00:00");
-            dadosParaPlanilha = dadosParaPlanilha.filter(r => {
-                if(!r.data) return false;
-                const p = r.data.split('/');
-                if(p.length !== 3) return false;
-                return new Date(p[2], p[1]-1, p[0]) >= dInicio;
-            });
-        }
-        if (filtroFim) {
-            const dFim = new Date(filtroFim + "T23:59:59");
-            dadosParaPlanilha = dadosParaPlanilha.filter(r => {
-                if(!r.data) return false;
-                const p = r.data.split('/');
-                if(p.length !== 3) return false;
-                return new Date(p[2], p[1]-1, p[0]) <= dFim;
-            });
-        }
-    }
+        const filtroInicio = document.getElementById('filtroRelatorioInicio').value;
+        const filtroFim = document.getElementById('filtroRelatorioFim').value;
 
-    if (dadosParaPlanilha.length === 0) {
-        exibirAlertaTop("Sem Dados", "Não há dados consolidados para o colaborador filtrado.");
-        return;
-    }
-    dadosParaPlanilha.sort((a,b) => {
-        if (!a.data || !b.data) return 0;
-        const pa = a.data.split('/');
-        const pb = b.data.split('/');
-        if(pa.length !== 3 || pb.length !== 3) return 0;
-        return new Date(pa[2], pa[1]-1, pa[0]) - new Date(pb[2], pb[1]-1, pb[0]);
-    });
-    const user = bancoUsuarios.find(u => String(u.id) === String(filtroColab)) || {};
-    const colabNome = user.nome || dadosParaPlanilha[0].nome;
-    const dataEmissao = new Date().toLocaleDateString('pt-BR');
-    const mesesExtenso = ["JANEIRO", "FEVEREIRO", "MARÇO", "ABRIL", "MAIO", "JUNHO", "JULHO", "AGOSTO", "SETEMBRO", "OUTUBRO", "NOVEMBRO", "DEZEMBRO"];
-    let mesRelatorio = "MÊS ATUAL";
-    let anoLetivo = new Date().getFullYear();
-    if (dadosParaPlanilha[0] && dadosParaPlanilha[0].data) {
-        const partesP = dadosParaPlanilha[0].data.split('/');
-        if (partesP.length === 3) {
-            const mNum = parseInt(partesP[1], 10) - 1;
-            mesRelatorio = mesesExtenso[mNum] || mesRelatorio;
-            anoLetivo = partesP[2];
-        }
-    }
-    const nomeEmpresaTopo = dadosEmpresaAtiva.nome || sessionStorage.getItem("nome_empresa_ativa") || "Empresa Parceira";
-    const cnpjEmpresaTopo = dadosEmpresaAtiva.cnpj || "-";
-    const enderecoEmpresaTopo = dadosEmpresaAtiva.endereco || "-";
-    const matrizPlanilha = [
-        ["FOLHA DE PONTO"],
-        [],
-        ["EMPRESA:", nomeEmpresaTopo, "", "", "", "CNPJ:", cnpjEmpresaTopo, "", ""],
-        ["ENDEREÇO:", enderecoEmpresaTopo, "", "", "", "", "", "", ""],
-        [],
-        ["COLABORADOR:", colabNome, "", "", "CTPS Nº SÉRIE:", user.ctps || "-", "", "DATA INÍCIO:", user.dataInicio || "-"],
-        ["FUNÇÃO / CARGO:", `${user.funcao || "-"} / ${user.cargo || "-"}`, "", "", "PIS:", user.pis || "-", "", "EMISSÃO:", dataEmissao],
-        ["HORÁRIO SEG A SEX:", user.horasSegSex || user.cargaSegSex || "08:00", "", "", "HORÁRIO SÁBADOS:", user.horasSab || user.cargaSab || "04:00", "", "DESCANSO:", "DOMINGO"],
-        ["MÊS REFERÊNCIA:", mesRelatorio, "", "", "ANO LETIVO:", anoLetivo, "", "", ""],
-        [],
-        ["Data", "Colaborador", "Entrada", "Almoço Ida", "Almoço Volta", "Saída", "Horas Trab.", "Horas Extras", "Observações/Justificativas"]
-    ];
-    let somaTrab = 0;
-    let somaEsperada = 0;
-    let somaFolgaBh = 0;
-
-    dadosParaPlanilha.forEach(r => {
-        somaTrab += r.minutosTrabalhadosNum;
-        somaEsperada += r.minutosEsperadosNum;
-
-        if (r.minutosFolgaBhNum) {
-            somaFolgaBh += r.minutosFolgaBhNum;
-        }
-
-        let textoObsFinal = "Sem observação";
-        if (r.observacoes && r.observacoes.length > 0) {
-            const observacoesTextos = r.observacoes.map(o => o.texto).filter(t => t && t.trim() !== "");
-            if (observacoesTextos.length > 0) {
-                textoObsFinal = observacoesTextos.join(" | ");
+        if (filtroInicio && filtroFim) {
+            dadosParaPlanilha = preencherCalendarioCompleto(dadosParaPlanilha, filtroInicio, filtroFim, filtroColab);
+        } else {
+            if (filtroInicio) {
+                const dInicio = new Date(filtroInicio + "T00:00:00");
+                dadosParaPlanilha = dadosParaPlanilha.filter(r => {
+                    if(!r.data) return false;
+                    const p = r.data.split('/');
+                    if(p.length !== 3) return false;
+                    return new Date(p[2], p[1]-1, p[0]) >= dInicio;
+                });
             }
-        } else if (r.statusDia === "FERIADO") {
-            textoObsFinal = "Feriado Abonado";
-        } else if (r.statusDia === "ATESTADO") {
-            textoObsFinal = "Atestado Médico";
-        } else if (r.statusDia === "ATESTADO PARCIAL" || r.statusDia === "Atestado Parcial (Horas)" || r.statusDia === "ATESTADO_PARCIAL") {
-            textoObsFinal = `Atestado Parcial (${r.horasAbono || ''} abonadas)`;
-        } else if (r.statusDia === "FERIAS") {
-            textoObsFinal = "Férias Abonadas";
-        } else if (r.statusDia === "FOLGA") {
-            textoObsFinal = "Folga Abonada / Compensatória";
-        } else if (r.statusDia === "FOLGA_BH") {
-            textoObsFinal = "Folga BH (Dia Integral)";
-        } else if (r.statusDia === "FOLGA_BH_PARCIAL") {
-            textoObsFinal = `Folga BH Parcial (${r.horasAbono || ''} debitadas)`;
-        } else if (r.isDomingo) {
-            textoObsFinal = "Descanso Semanal (DSR / Domingo)";
+            if (filtroFim) {
+                const dFim = new Date(filtroFim + "T23:59:59");
+                dadosParaPlanilha = dadosParaPlanilha.filter(r => {
+                    if(!r.data) return false;
+                    const p = r.data.split('/');
+                    if(p.length !== 3) return false;
+                    return new Date(p[2], p[1]-1, p[0]) <= dFim;
+                });
+            }
         }
 
-        let tagExcel = "";
-        if (r.statusDia === "FOLGA_BH") {
-            tagExcel = " (FOLGA BH)";
-        } else if (r.statusDia === "FOLGA_BH_PARCIAL") {
-            tagExcel = ` (FOLGA BH ${r.horasAbono || ''})`;
-        } else if (r.statusDia === "ATESTADO_PARCIAL" || r.statusDia === "ATESTADO PARCIAL") {
-            tagExcel = ` (ATESTADO ${r.horasAbono || ''})`;
-        } else if (r.statusDia && r.statusDia !== "NORMAL" && r.statusDia !== "EDITADO") {
-            tagExcel = ` (${r.statusDia})`;
-        } else if (r.isDomingo) {
-            tagExcel = " (DOM)";
+        if (dadosParaPlanilha.length === 0) {
+            exibirAlertaTop("Sem Dados", "Não há dados consolidados para o colaborador filtrado.");
+            return;
         }
-        const dataStrExcel = `${r.data}${tagExcel}`;
-        matrizPlanilha.push([dataStrExcel, r.nome, r.entrada, r.almocoIda, r.almocoVolta, r.saida, r.horasTrabalhadas, r.horasExtras, textoObsFinal]);
-    });
+        dadosParaPlanilha.sort((a,b) => {
+            if (!a.data || !b.data) return 0;
+            const pa = a.data.split('/');
+            const pb = b.data.split('/');
+            if(pa.length !== 3 || pb.length !== 3) return 0;
+            return new Date(pa[2], pa[1]-1, pa[0]) - new Date(pb[2], pb[1]-1, pb[0]);
+        });
+        const user = bancoUsuarios.find(u => String(u.id) === String(filtroColab)) || {};
+        const colabNome = String(user.nome || dadosParaPlanilha[0].nome || "Colaborador");
+        const dataEmissao = new Date().toLocaleDateString('pt-BR');
+        const mesesExtenso = ["JANEIRO", "FEVEREIRO", "MARÇO", "ABRIL", "MAIO", "JUNHO", "JULHO", "AGOSTO", "SETEMBRO", "OUTUBRO", "NOVEMBRO", "DEZEMBRO"];
+        let mesRelatorio = "MÊS ATUAL";
+        let anoLetivo = new Date().getFullYear();
+        if (dadosParaPlanilha[0] && dadosParaPlanilha[0].data) {
+            const partesP = dadosParaPlanilha[0].data.split('/');
+            if (partesP.length === 3) {
+                const mNum = parseInt(partesP[1], 10) - 1;
+                mesRelatorio = mesesExtenso[mNum] || mesRelatorio;
+                anoLetivo = partesP[2];
+            }
+        }
+        const nomeEmpresaTopo = dadosEmpresaAtiva.nome || sessionStorage.getItem("nome_empresa_ativa") || "Empresa Parceira";
+        const cnpjEmpresaTopo = dadosEmpresaAtiva.cnpj || "-";
+        const enderecoEmpresaTopo = dadosEmpresaAtiva.endereco || "-";
+        const matrizPlanilha = [
+            ["FOLHA DE PONTO"],
+            [],
+            ["EMPRESA:", nomeEmpresaTopo, "", "", "", "CNPJ:", cnpjEmpresaTopo, "", ""],
+            ["ENDEREÇO:", enderecoEmpresaTopo, "", "", "", "", "", "", ""],
+            [],
+            ["COLABORADOR:", colabNome, "", "", "CTPS Nº SÉRIE:", user.ctps || "-", "", "DATA INÍCIO:", user.dataInicio || "-"],
+            ["FUNÇÃO / CARGO:", `${user.funcao || "-"} / ${user.cargo || "-"}`, "", "", "PIS:", user.pis || "-", "", "EMISSÃO:", dataEmissao],
+            ["HORÁRIO SEG A SEX:", user.horasSegSex || user.cargaSegSex || "08:00", "", "", "HORÁRIO SÁBADOS:", user.horasSab || user.cargaSab || "04:00", "", "DESCANSO:", "DOMINGO"],
+            ["MÊS REFERÊNCIA:", mesRelatorio, "", "", "ANO LETIVO:", anoLetivo, "", "", ""],
+            [],
+            ["Data", "Colaborador", "Entrada", "Almoço Ida", "Almoço Volta", "Saída", "Horas Trab.", "Horas Extras", "Observações/Justificativas"]
+        ];
+        let somaTrab = 0;
+        let somaEsperada = 0;
+        let somaFolgaBh = 0;
 
-    const totalRealizadoMinutosExcel = somaTrab + somaFolgaBh;
-    const saldoLiquidoExcel = totalRealizadoMinutosExcel - somaEsperada;
-    const strSaldoExcel = formatarMinutosParaString(Math.abs(saldoLiquidoExcel));
+        dadosParaPlanilha.forEach(r => {
+            somaTrab += r.minutosTrabalhadosNum;
+            somaEsperada += r.minutosEsperadosNum;
 
-    let textoSaldo = "";
-    if (saldoLiquidoExcel > 0) textoSaldo = `+ ${strSaldoExcel} (Horas Extras Reais)`;
-    else if (saldoLiquidoExcel < 0) textoSaldo = `- ${strSaldoExcel} (Horas Faltantes)`;
-    else textoSaldo = "00:00 (Zerado)";
+            if (r.minutosFolgaBhNum) {
+                somaFolgaBh += r.minutosFolgaBhNum;
+            }
 
-    matrizPlanilha.push([]);
-
-    const idxTitle = matrizPlanilha.length;
-    matrizPlanilha.push(["RESUMO FINANCEIRO DO PERÍODO", "", "", "", "", "", "", "", ""]);
-
-    const idxCarga = matrizPlanilha.length;
-    matrizPlanilha.push(["CARGA ESPERADA DO PERÍODO:", "", "", "", "", "", formatarMinutosParaString(somaEsperada), "", ""]);
-
-    const idxTrab = matrizPlanilha.length;
-    matrizPlanilha.push(["TOTAL REALIZADO:", "", "", "", "", "", formatarMinutosParaString(totalRealizadoMinutosExcel), "", ""]);
-
-    const idxSaldo = matrizPlanilha.length;
-    matrizPlanilha.push(["SALDO HORAS EXTRAS:", "", "", "", "", "", textoSaldo, "", ""]);
-
-    const idxFolgaBh = matrizPlanilha.length;
-    matrizPlanilha.push(["SALDO BH [INTEGRAL E PARCIAL]:", "", "", "", "", "", `- ${formatarMinutosParaString(somaFolgaBh)} (Descontado)`, "", ""]);
-
-    matrizPlanilha.push([]);
-    matrizPlanilha.push([]);
-
-    const idxDeclaracao = matrizPlanilha.length;
-    matrizPlanilha.push(["Declaro ainda estar ciente de que a apresentação de informações falsas e rasuras, sujeitando-me às penalidades previstas no Art. 299 do Decreto Lei nº 2848 de 07/12/1940.", "", "", "", "", "", "", "", ""]);
-
-    matrizPlanilha.push([]);
-    matrizPlanilha.push([]);
-    matrizPlanilha.push([]);
-
-    const idxLinhaAssinatura = matrizPlanilha.length;
-    matrizPlanilha.push(["", "", "Assinatura do Colaborador", "", "", "", "", "", ""]);
-    const worksheet = XLSX.utils.aoa_to_sheet(matrizPlanilha);
-
-    const bordaSuave = {
-        top: { style: "thin", color: { rgb: "CBD5E1" } },
-        bottom: { style: "thin", color: { rgb: "CBD5E1" } },
-        left: { style: "thin", color: { rgb: "CBD5E1" } },
-        right: { style: "thin", color: { rgb: "CBD5E1" } }
-    };
-    const estiloTitulo = {
-        fill: { fgColor: { rgb: "0F172A" } },
-        font: { bold: true, color: { rgb: "F97316" }, size: 16, name: "Calibri" },
-        alignment: { horizontal: "center", vertical: "center" }
-    };
-    const estiloRotuloInfo = {
-        fill: { fgColor: { rgb: "F1F5F9" } },
-        font: { bold: true, color: { rgb: "475569" }, size: 9, name: "Calibri" },
-        alignment: { horizontal: "left", vertical: "center" },
-        border: bordaSuave
-    };
-    const estiloValorInfo = {
-        fill: { fgColor: { rgb: "FFFFFF" } },
-        font: { bold: true, color: { rgb: "0F172A" }, size: 9.5, name: "Calibri" },
-        alignment: { horizontal: "left", vertical: "center" },
-        border: bordaSuave
-    };
-    const estiloHeaderTabela = {
-        fill: { fgColor: { rgb: "0F172A" } },
-        font: { bold: true, color: { rgb: "FFFFFF" }, size: 10, name: "Calibri" },
-        alignment: { horizontal: "center", vertical: "center" },
-        border: bordaSuave
-    };
-    const estiloLinhaBranca = {
-        fill: { fgColor: { rgb: "FFFFFF" } },
-        font: { color: { rgb: "334155" }, size: 9.5, name: "Calibri" },
-        alignment: { horizontal: "center", vertical: "center" },
-        border: bordaSuave
-    };
-    const estiloLinhaCinza = {
-        fill: { fgColor: { rgb: "F8FAFC" } },
-        font: { color: { rgb: "334155" }, size: 9.5, name: "Calibri" },
-        alignment: { horizontal: "center", vertical: "center" },
-        border: bordaSuave
-    };
-    const estiloLinhaDSR = {
-        fill: { fgColor: { rgb: "F1F5F9" } },
-        font: { color: { rgb: "64748B" }, size: 9, italic: true, name: "Calibri" },
-        alignment: { horizontal: "center", vertical: "center" },
-        border: bordaSuave
-    };
-    const range = XLSX.utils.decode_range(worksheet['!ref']);
-
-    for (let R = range.s.r; R <= range.e.r; ++R) {
-        for (let C = range.s.c; C <= range.e.c; ++C) {
-            const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
-            if (!worksheet[cellAddress]) worksheet[cellAddress] = { t: 's', v: '' };
-            const cell = worksheet[cellAddress];
-            if (R === 0) {
-                cell.s = estiloTitulo;
-            } else if (R >= 2 && R <= 8) {
-                if ([0, 4, 5, 7].includes(C) && cell.v) {
-                    cell.s = estiloRotuloInfo;
-                } else {
-                    cell.s = estiloValorInfo;
+            let textoObsFinal = "Sem observação";
+            if (r.observacoes && r.observacoes.length > 0) {
+                const observacoesTextos = r.observacoes.map(o => o.texto).filter(t => t && t.trim() !== "");
+                if (observacoesTextos.length > 0) {
+                    textoObsFinal = observacoesTextos.join(" | ");
                 }
-            } else if (R === 10) {
-                cell.s = estiloHeaderTabela;
-            } else if (R >= 11 && R < idxTitle - 1) {
-                const isDSR = String(matrizPlanilha[R][0] || "").includes("DOM");
-                const isPar = (R % 2 === 0);
-                if (isDSR) {
-                    cell.s = JSON.parse(JSON.stringify(estiloLinhaDSR));
-                } else {
-                    cell.s = isPar ? JSON.parse(JSON.stringify(estiloLinhaCinza)) : JSON.parse(JSON.stringify(estiloLinhaBranca));
-                }
-                if (C === 1 || C === 8) {
-                    cell.s.alignment = { horizontal: "left", vertical: "center" };
-                }
-                if (C === 6) {
-                    cell.s.font = { bold: true, color: { rgb: "059669" }, size: 9.5 };
-                }
-                if (C === 7) {
-                    const vStr = String(cell.v || "");
-                    if (vStr.startsWith("+")) {
+            } else if (r.statusDia === "FERIADO") {
+                textoObsFinal = "Feriado Abonado";
+            } else if (r.statusDia === "ATESTADO") {
+                textoObsFinal = "Atestado Médico";
+            } else if (r.statusDia === "ATESTADO PARCIAL" || r.statusDia === "Atestado Parcial (Horas)" || r.statusDia === "ATESTADO_PARCIAL") {
+                textoObsFinal = `Atestado Parcial (${r.horasAbono || ''} abonadas)`;
+            } else if (r.statusDia === "FERIAS") {
+                textoObsFinal = "Férias Abonadas";
+            } else if (r.statusDia === "FOLGA") {
+                textoObsFinal = "Folga Abonada / Compensatória";
+            } else if (r.statusDia === "FOLGA_BH") {
+                textoObsFinal = "Folga BH (Dia Integral)";
+            } else if (r.statusDia === "FOLGA_BH_PARCIAL") {
+                textoObsFinal = `Folga BH Parcial (${r.horasAbono || ''} debitadas)`;
+            } else if (r.isDomingo) {
+                textoObsFinal = "Descanso Semanal (DSR / Domingo)";
+            }
+
+            let tagExcel = "";
+            if (r.statusDia === "FOLGA_BH") {
+                tagExcel = " (FOLGA BH)";
+            } else if (r.statusDia === "FOLGA_BH_PARCIAL") {
+                tagExcel = ` (FOLGA BH ${r.horasAbono || ''})`;
+            } else if (r.statusDia === "ATESTADO_PARCIAL" || r.statusDia === "ATESTADO PARCIAL") {
+                tagExcel = ` (ATESTADO ${r.horasAbono || ''})`;
+            } else if (r.statusDia && r.statusDia !== "NORMAL" && r.statusDia !== "EDITADO") {
+                tagExcel = ` (${r.statusDia})`;
+            } else if (r.isDomingo) {
+                tagExcel = " (DOM)";
+            }
+            const dataStrExcel = `${r.data}${tagExcel}`;
+            matrizPlanilha.push([dataStrExcel, r.nome, r.entrada, r.almocoIda, r.almocoVolta, r.saida, r.horasTrabalhadas, r.horasExtras, textoObsFinal]);
+        });
+
+        const totalRealizadoMinutosExcel = somaTrab + somaFolgaBh;
+        const saldoLiquidoExcel = totalRealizadoMinutosExcel - somaEsperada;
+        const strSaldoExcel = formatarMinutosParaString(Math.abs(saldoLiquidoExcel));
+
+        let textoSaldo = "";
+        if (saldoLiquidoExcel > 0) textoSaldo = `+ ${strSaldoExcel} (Horas Extras Reais)`;
+        else if (saldoLiquidoExcel < 0) textoSaldo = `- ${strSaldoExcel} (Horas Faltantes)`;
+        else textoSaldo = "00:00 (Zerado)";
+
+        matrizPlanilha.push([]);
+
+        const idxTitle = matrizPlanilha.length;
+        matrizPlanilha.push(["RESUMO FINANCEIRO DO PERÍODO", "", "", "", "", "", "", "", ""]);
+
+        const idxCarga = matrizPlanilha.length;
+        matrizPlanilha.push(["CARGA ESPERADA DO PERÍODO:", "", "", "", "", "", formatarMinutosParaString(somaEsperada), "", ""]);
+
+        const idxTrab = matrizPlanilha.length;
+        matrizPlanilha.push(["TOTAL REALIZADO:", "", "", "", "", "", formatarMinutosParaString(totalRealizadoMinutosExcel), "", ""]);
+
+        const idxSaldo = matrizPlanilha.length;
+        matrizPlanilha.push(["SALDO HORAS EXTRAS:", "", "", "", "", "", textoSaldo, "", ""]);
+
+        const idxFolgaBh = matrizPlanilha.length;
+        matrizPlanilha.push(["SALDO BH [INTEGRAL E PARCIAL]:", "", "", "", "", "", `- ${formatarMinutosParaString(somaFolgaBh)} (Descontado)`, "", ""]);
+
+        matrizPlanilha.push([]);
+        matrizPlanilha.push([]);
+
+        const idxDeclaracao = matrizPlanilha.length;
+        matrizPlanilha.push(["Declaro ainda estar ciente de que a apresentação de informações falsas e rasuras, sujeitando-me às penalidades previstas no Art. 299 do Decreto Lei nº 2848 de 07/12/1940.", "", "", "", "", "", "", "", ""]);
+
+        matrizPlanilha.push([]);
+        matrizPlanilha.push([]);
+        matrizPlanilha.push([]);
+
+        const idxLinhaAssinatura = matrizPlanilha.length;
+        matrizPlanilha.push(["", "", "Assinatura do Colaborador", "", "", "", "", "", ""]);
+        const worksheet = XLSX.utils.aoa_to_sheet(matrizPlanilha);
+
+        const bordaSuave = {
+            top: { style: "thin", color: { rgb: "CBD5E1" } },
+            bottom: { style: "thin", color: { rgb: "CBD5E1" } },
+            left: { style: "thin", color: { rgb: "CBD5E1" } },
+            right: { style: "thin", color: { rgb: "CBD5E1" } }
+        };
+        const estiloTitulo = {
+            fill: { fgColor: { rgb: "0F172A" } },
+            font: { bold: true, color: { rgb: "F97316" }, size: 16, name: "Calibri" },
+            alignment: { horizontal: "center", vertical: "center" }
+        };
+        const estiloRotuloInfo = {
+            fill: { fgColor: { rgb: "F1F5F9" } },
+            font: { bold: true, color: { rgb: "475569" }, size: 9, name: "Calibri" },
+            alignment: { horizontal: "left", vertical: "center" },
+            border: bordaSuave
+        };
+        const estiloValorInfo = {
+            fill: { fgColor: { rgb: "FFFFFF" } },
+            font: { bold: true, color: { rgb: "0F172A" }, size: 9.5, name: "Calibri" },
+            alignment: { horizontal: "left", vertical: "center" },
+            border: bordaSuave
+        };
+        const estiloHeaderTabela = {
+            fill: { fgColor: { rgb: "0F172A" } },
+            font: { bold: true, color: { rgb: "FFFFFF" }, size: 10, name: "Calibri" },
+            alignment: { horizontal: "center", vertical: "center" },
+            border: bordaSuave
+        };
+        const estiloLinhaBranca = {
+            fill: { fgColor: { rgb: "FFFFFF" } },
+            font: { color: { rgb: "334155" }, size: 9.5, name: "Calibri" },
+            alignment: { horizontal: "center", vertical: "center" },
+            border: bordaSuave
+        };
+        const estiloLinhaCinza = {
+            fill: { fgColor: { rgb: "F8FAFC" } },
+            font: { color: { rgb: "334155" }, size: 9.5, name: "Calibri" },
+            alignment: { horizontal: "center", vertical: "center" },
+            border: bordaSuave
+        };
+        const estiloLinhaDSR = {
+            fill: { fgColor: { rgb: "F1F5F9" } },
+            font: { color: { rgb: "64748B" }, size: 9, italic: true, name: "Calibri" },
+            alignment: { horizontal: "center", vertical: "center" },
+            border: bordaSuave
+        };
+        const range = XLSX.utils.decode_range(worksheet['!ref']);
+
+        for (let R = range.s.r; R <= range.e.r; ++R) {
+            for (let C = range.s.c; C <= range.e.c; ++C) {
+                const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+                if (!worksheet[cellAddress]) worksheet[cellAddress] = { t: 's', v: '' };
+                const cell = worksheet[cellAddress];
+                if (R === 0) {
+                    cell.s = estiloTitulo;
+                } else if (R >= 2 && R <= 8) {
+                    if ([0, 4, 5, 7].includes(C) && cell.v) {
+                        cell.s = estiloRotuloInfo;
+                    } else {
+                        cell.s = estiloValorInfo;
+                    }
+                } else if (R === 10) {
+                    cell.s = estiloHeaderTabela;
+                } else if (R >= 11 && R < idxTitle - 1) {
+                    const isDSR = String(matrizPlanilha[R][0] || "").includes("DOM");
+                    const isPar = (R % 2 === 0);
+                    if (isDSR) {
+                        cell.s = JSON.parse(JSON.stringify(estiloLinhaDSR));
+                    } else {
+                        cell.s = isPar ? JSON.parse(JSON.stringify(estiloLinhaCinza)) : JSON.parse(JSON.stringify(estiloLinhaBranca));
+                    }
+                    if (C === 1 || C === 8) {
+                        cell.s.alignment = { horizontal: "left", vertical: "center" };
+                    }
+                    if (C === 6) {
                         cell.s.font = { bold: true, color: { rgb: "059669" }, size: 9.5 };
-                    } else if (vStr.startsWith("-")) {
-                        cell.s.font = { bold: true, color: { rgb: "DC2626" }, size: 9.5 };
                     }
-                }
-            } else if (R === idxTitle) {
-                cell.s = {
-                    fill: { fgColor: { rgb: "0F172A" } },
-                    font: { bold: true, color: { rgb: "FFFFFF" }, size: 10 },
-                    alignment: { horizontal: "center", vertical: "center" },
-                    border: bordaSuave
-                };
-            } else if (R >= idxCarga && R <= idxFolgaBh) {
-                if (C <= 5) {
-                    cell.s = {
-                        fill: { fgColor: { rgb: "F8FAFC" } },
-                        font: { bold: true, color: { rgb: "334155" }, size: 9.5 },
-                        alignment: { horizontal: "right", vertical: "center" },
-                        border: bordaSuave
-                    };
-                } else {
-                    let corTexto = "0F172A";
-                    if (R === idxSaldo) {
-                        corTexto = saldoLiquidoExcel > 0 ? "059669" : (saldoLiquidoExcel < 0 ? "DC2626" : "0F172A");
-                    } else if (R === idxFolgaBh) {
-                        corTexto = "EA580C";
+                    if (C === 7) {
+                        const vStr = String(cell.v || "");
+                        if (vStr.startsWith("+")) {
+                            cell.s.font = { bold: true, color: { rgb: "059669" }, size: 9.5 };
+                        } else if (vStr.startsWith("-")) {
+                            cell.s.font = { bold: true, color: { rgb: "DC2626" }, size: 9.5 };
+                        }
                     }
+                } else if (R === idxTitle) {
                     cell.s = {
-                        fill: { fgColor: { rgb: "FFFFFF" } },
-                        font: { bold: true, color: { rgb: corTexto }, size: 10 },
+                        fill: { fgColor: { rgb: "0F172A" } },
+                        font: { bold: true, color: { rgb: "FFFFFF" }, size: 10 },
                         alignment: { horizontal: "center", vertical: "center" },
                         border: bordaSuave
                     };
+                } else if (R >= idxCarga && R <= idxFolgaBh) {
+                    if (C <= 5) {
+                        cell.s = {
+                            fill: { fgColor: { rgb: "F8FAFC" } },
+                            font: { bold: true, color: { rgb: "334155" }, size: 9.5 },
+                            alignment: { horizontal: "right", vertical: "center" },
+                            border: bordaSuave
+                        };
+                    } else {
+                        let corTexto = "0F172A";
+                        if (R === idxSaldo) {
+                            corTexto = saldoLiquidoExcel > 0 ? "059669" : (saldoLiquidoExcel < 0 ? "DC2626" : "0F172A");
+                        } else if (R === idxFolgaBh) {
+                            corTexto = "EA580C";
+                        }
+                        cell.s = {
+                            fill: { fgColor: { rgb: "FFFFFF" } },
+                            font: { bold: true, color: { rgb: corTexto }, size: 10 },
+                            alignment: { horizontal: "center", vertical: "center" },
+                            border: bordaSuave
+                        };
+                    }
+                } else if (R === idxDeclaracao) {
+                    cell.s = {
+                        font: { italic: true, color: { rgb: "64748B" }, size: 8.5 },
+                        alignment: { horizontal: "center", vertical: "center" }
+                    };
+                } else if (R === idxLinhaAssinatura) {
+                    cell.s = {
+                        font: { bold: true, color: { rgb: "1E293B" }, size: 10 },
+                        alignment: { horizontal: "center", vertical: "top" },
+                        border: { top: { style: "medium", color: { rgb: "0F172A" } } }
+                    };
                 }
-            } else if (R === idxDeclaracao) {
-                cell.s = {
-                    font: { italic: true, color: { rgb: "64748B" }, size: 8.5 },
-                    alignment: { horizontal: "center", vertical: "center" }
-                };
-            } else if (R === idxLinhaAssinatura) {
-                cell.s = {
-                    font: { bold: true, color: { rgb: "1E293B" }, size: 10 },
-                    alignment: { horizontal: "center", vertical: "top" },
-                    border: { top: { style: "medium", color: { rgb: "0F172A" } } }
-                };
             }
         }
+
+        worksheet['!merges'] = [
+            { s: { r: 0, c: 0 }, e: { r: 0, c: 8 } }, 
+            { s: { r: 2, c: 1 }, e: { r: 2, c: 4 } }, 
+            { s: { r: 2, c: 6 }, e: { r: 2, c: 8 } }, 
+            { s: { r: 3, c: 1 }, e: { r: 3, c: 8 } }, 
+            { s: { r: 5, c: 1 }, e: { r: 5, c: 3 } }, 
+            { s: { r: 5, c: 5 }, e: { r: 5, c: 6 } }, 
+            { s: { r: 5, c: 8 }, e: { r: 5, c: 8 } }, 
+            { s: { r: 6, c: 1 }, e: { r: 6, c: 3 } }, 
+            { s: { r: 6, c: 5 }, e: { r: 6, c: 6 } }, 
+            { s: { r: 7, c: 1 }, e: { r: 7, c: 3 } }, 
+            { s: { r: 7, c: 5 }, e: { r: 7, c: 6 } }, 
+            { s: { r: 8, c: 1 }, e: { r: 8, c: 3 } }, 
+            { s: { r: 8, c: 5 }, e: { r: 8, c: 6 } }, 
+            { s: { r: idxTitle, c: 0 }, e: { r: idxTitle, c: 8 } }, 
+            { s: { r: idxCarga, c: 0 }, e: { r: idxCarga, c: 5 } }, 
+            { s: { r: idxCarga, c: 6 }, e: { r: idxCarga, c: 8 } }, 
+            { s: { r: idxTrab, c: 0 }, e: { r: idxTrab, c: 5 } }, 
+            { s: { r: idxTrab, c: 6 }, e: { r: idxTrab, c: 8 } }, 
+            { s: { r: idxSaldo, c: 0 }, e: { r: idxSaldo, c: 5 } }, 
+            { s: { r: idxSaldo, c: 6 }, e: { r: idxSaldo, c: 8 } }, 
+            { s: { r: idxFolgaBh, c: 0 }, e: { r: idxFolgaBh, c: 3 } }, 
+            { s: { r: idxFolgaBh, c: 4 }, e: { r: idxFolgaBh, c: 5 } }, 
+            { s: { r: idxDeclaracao, c: 0 }, e: { r: idxDeclaracao, c: 8 } }, 
+            { s: { r: idxLinhaAssinatura, c: 2 }, e: { r: idxLinhaAssinatura, c: 6 } }
+        ];
+
+        worksheet['!cols'] = [
+            { wch: 18 },
+            { wch: 36 },
+            { wch: 10 },
+            { wch: 12 },
+            { wch: 14 },
+            { wch: 10 },
+            { wch: 13 },
+            { wch: 13 },
+            { wch: 40 }
+        ];
+        const nomeLimpo = colabNome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, "_");
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Folha_de_Ponto");
+        XLSX.writeFile(workbook, `Folha_Ponto_${nomeLimpo}.xlsx`);
+    } catch (errExcel) {
+        console.error("Erro ao exportar Excel Detalhado:", errExcel);
+        exibirAlertaTop("⚠️ Erro na Exportação", "Ocorreu um problema ao gerar o Excel: " + (errExcel.message || "Tente novamente."));
     }
-
-    worksheet['!merges'] = [
-        { s: { r: 0, c: 0 }, e: { r: 0, c: 8 } }, 
-        { s: { r: 2, c: 1 }, e: { r: 2, c: 4 } }, 
-        { s: { r: 2, c: 6 }, e: { r: 2, c: 8 } }, 
-        { s: { r: 3, c: 1 }, e: { r: 3, c: 8 } }, 
-        { s: { r: 5, c: 1 }, e: { r: 5, c: 3 } }, 
-        { s: { r: 5, c: 5 }, e: { r: 5, c: 6 } }, 
-        { s: { r: 5, c: 8 }, e: { r: 5, c: 8 } }, 
-        { s: { r: 6, c: 1 }, e: { r: 6, c: 3 } }, 
-        { s: { r: 6, c: 5 }, e: { r: 6, c: 6 } }, 
-        { s: { r: 7, c: 1 }, e: { r: 7, c: 3 } }, 
-        { s: { r: 7, c: 5 }, e: { r: 7, c: 6 } }, 
-        { s: { r: 8, c: 1 }, e: { r: 8, c: 3 } }, 
-        { s: { r: 8, c: 5 }, e: { r: 8, c: 6 } }, 
-        { s: { r: idxTitle, c: 0 }, e: { r: idxTitle, c: 8 } }, 
-        { s: { r: idxCarga, c: 0 }, e: { r: idxCarga, c: 5 } }, 
-        { s: { r: idxCarga, c: 6 }, e: { r: idxCarga, c: 8 } }, 
-        { s: { r: idxTrab, c: 0 }, e: { r: idxTrab, c: 5 } }, 
-        { s: { r: idxTrab, c: 6 }, e: { r: idxTrab, c: 8 } }, 
-        { s: { r: idxSaldo, c: 0 }, e: { r: idxSaldo, c: 5 } }, 
-        { s: { r: idxSaldo, c: 6 }, e: { r: idxSaldo, c: 8 } }, 
-        { s: { r: idxFolgaBh, c: 0 }, e: { r: idxFolgaBh, c: 3 } }, 
-        { s: { r: idxFolgaBh, c: 4 }, e: { r: idxFolgaBh, c: 5 } }, 
-        { s: { r: idxDeclaracao, c: 0 }, e: { r: idxDeclaracao, c: 8 } }, 
-        { s: { r: idxLinhaAssinatura, c: 2 }, e: { r: idxLinhaAssinatura, c: 6 } }
-    ];
-
-    worksheet['!cols'] = [
-        { wch: 18 },
-        { wch: 36 },
-        { wch: 10 },
-        { wch: 12 },
-        { wch: 14 },
-        { wch: 10 },
-        { wch: 13 },
-        { wch: 13 },
-        { wch: 40 }
-    ];
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Folha_de_Ponto");
-    XLSX.writeFile(workbook, `Folha_Ponto_${colabNome.replace(/ /g, "_")}.xlsx`);
 }
 
 async function exportarExcelGerencial() {
@@ -1742,223 +1777,230 @@ async function exportarExcelGerencial() {
         exibirAlertaTop("Selecione um Colaborador", "Por favor, defina qual colaborador deseja exportar para gerar o relatório gerencial.");
         return;
     }
-    let dadosRelatorio = await puxarLogsEFiltrar();
 
-    const filtroInicio = document.getElementById('filtroRelatorioInicio').value;
-    const filtroFim = document.getElementById('filtroRelatorioFim').value;
+    try {
+        let dadosRelatorio = await puxarLogsEFiltrar(true);
 
-    if (filtroInicio && filtroFim) {
-        dadosRelatorio = preencherCalendarioCompleto(dadosRelatorio, filtroInicio, filtroFim, filtroColab);
-    } else {
-        if (filtroInicio) {
-            const dInicio = new Date(filtroInicio + "T00:00:00");
-            dadosRelatorio = dadosRelatorio.filter(r => {
-                if(!r.data) return false;
-                const p = r.data.split('/');
-                if(p.length !== 3) return false;
-                return new Date(p[2], p[1]-1, p[0]) >= dInicio;
-            });
-        }
-        if (filtroFim) {
-            const dFim = new Date(filtroFim + "T23:59:59");
-            dadosRelatorio = dadosRelatorio.filter(r => {
-                if(!r.data) return false;
-                const p = r.data.split('/');
-                if(p.length !== 3) return false;
-                return new Date(p[2], p[1]-1, p[0]) <= dFim;
-            });
-        }
-    }
+        const filtroInicio = document.getElementById('filtroRelatorioInicio').value;
+        const filtroFim = document.getElementById('filtroRelatorioFim').value;
 
-    if (dadosRelatorio.length === 0) {
-        exibirAlertaTop("Sem Dados", "Não há dados consolidados para o colaborador filtrado.");
-        return;
-    }
-
-    const dadosMensais = consolidarPorMes(dadosRelatorio);
-
-    const user = bancoUsuarios.find(u => String(u.id) === String(filtroColab)) || {};
-    const colabNome = user.nome || dadosRelatorio[0].nome;
-    const colabCpf = user.cpf || "-";
-    const colabCargo = user.cargo || user.funcao || "-";
-    const nomeEmpresa = dadosEmpresaAtiva.nome || sessionStorage.getItem("nome_empresa_ativa") || "Empresa Parceira";
-    const cnpjEmpresa = dadosEmpresaAtiva.cnpj || "-";
-    const dataEmissao = new Date().toLocaleDateString('pt-BR');
-
-    const matrizGerencial = [
-        ["RELATÓRIO GERENCIAL MENSAL - BANCO DE HORAS"],
-        [],
-        ["EMPRESA:", nomeEmpresa, "", "CNPJ:", cnpjEmpresa, ""],
-        ["COLABORADOR:", colabNome, "", "CPF:", colabCpf, ""],
-        ["CARGO / FUNÇÃO:", colabCargo, "", "EMISSÃO:", dataEmissao, ""],
-        [],
-        ["Mês / Ano", "Colaborador", "Horas Trab.", "Horas Extras", "Folga BH", "Resultado"]
-    ];
-
-    let somaGeralTrab = 0;
-    let somaGeralBh = 0;
-    let somaGeralResultado = 0;
-
-    dadosMensais.forEach(m => {
-        somaGeralTrab += m.minutosTrabalhadosNum;
-        somaGeralBh += m.minutosFolgaBhNum;
-        somaGeralResultado += m.resultadoGeralNum;
-
-        const strTrab = formatarMinutosParaString(m.minutosTrabalhadosNum);
-        
-        let strExtra = "00:00";
-        if (m.minutosExtrasPositivosNum > 0) strExtra = `+${formatarMinutosParaString(m.minutosExtrasPositivosNum)}`;
-
-        const strBh = m.minutosFolgaBhNum > 0 ? `- ${formatarMinutosParaString(m.minutosFolgaBhNum)}` : "-";
-
-        let strRes = "00:00";
-        if (m.resultadoGeralNum > 0) strRes = `+${formatarMinutosParaString(m.resultadoGeralNum)}`;
-        else if (m.resultadoGeralNum < 0) strRes = `-${formatarMinutosParaString(Math.abs(m.resultadoGeralNum))}`;
-
-        matrizGerencial.push([
-            m.rotulo,
-            m.colaborador,
-            strTrab,
-            strExtra,
-            strBh,
-            strRes
-        ]);
-    });
-
-    const strResultadoGeralAbs = formatarMinutosParaString(Math.abs(somaGeralResultado));
-    let textoResultadoGeral = "00:00 (Quitado)";
-    if (somaGeralResultado > 0) textoResultadoGeral = `+ ${strResultadoGeralAbs} (Saldo Positivo)`;
-    else if (somaGeralResultado < 0) textoResultadoGeral = `- ${strResultadoGeralAbs} (Saldo Devedor)`;
-
-    matrizGerencial.push([]);
-    const idxTitle = matrizGerencial.length;
-    matrizGerencial.push(["RESUMO GERAL CUMULATIVO", "", "", "", "", ""]);
-
-    const idxTrab = matrizGerencial.length;
-    matrizGerencial.push(["TOTAL DE HORAS TRABALHADAS:", "", "", "", formatarMinutosParaString(somaGeralTrab), ""]);
-
-    const idxFolgaBh = matrizGerencial.length;
-    matrizGerencial.push(["TOTAL BANCO DE HORAS COMPENSADO:", "", "", "", `- ${formatarMinutosParaString(somaGeralBh)}`, ""]);
-
-    const idxResultadoGeral = matrizGerencial.length;
-    matrizGerencial.push(["RESULTADO GERAL CUMULATIVO:", "", "", "", textoResultadoGeral, ""]);
-
-    matrizGerencial.push([]);
-    matrizGerencial.push([]);
-    matrizGerencial.push([]);
-
-    const idxAssinatura = matrizGerencial.length;
-    matrizGerencial.push(["", "Assinatura do Colaborador", "", "", "", ""]);
-
-    const worksheet = XLSX.utils.aoa_to_sheet(matrizGerencial);
-
-    const bordaSuave = {
-        top: { style: "thin", color: { rgb: "CBD5E1" } },
-        bottom: { style: "thin", color: { rgb: "CBD5E1" } },
-        left: { style: "thin", color: { rgb: "CBD5E1" } },
-        right: { style: "thin", color: { rgb: "CBD5E1" } }
-    };
-
-    const range = XLSX.utils.decode_range(worksheet['!ref']);
-    for (let R = range.s.r; R <= range.e.r; ++R) {
-        for (let C = range.s.c; C <= range.e.c; ++C) {
-            const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
-            if (!worksheet[cellAddress]) worksheet[cellAddress] = { t: 's', v: '' };
-            const cell = worksheet[cellAddress];
-
-            if (R === 0) {
-                cell.s = {
-                    fill: { fgColor: { rgb: "0F172A" } },
-                    font: { bold: true, color: { rgb: "F97316" }, size: 14, name: "Calibri" },
-                    alignment: { horizontal: "center", vertical: "center" }
-                };
-            } else if (R >= 2 && R <= 4) {
-                if ([0, 3].includes(C) && cell.v) {
-                    cell.s = { fill: { fgColor: { rgb: "F1F5F9" } }, font: { bold: true, color: { rgb: "475569" }, size: 9 }, border: bordaSuave };
-                } else {
-                    cell.s = { fill: { fgColor: { rgb: "FFFFFF" } }, font: { bold: true, color: { rgb: "0F172A" }, size: 9.5 }, border: bordaSuave };
-                }
-            } else if (R === 6) {
-                cell.s = {
-                    fill: { fgColor: { rgb: "0F172A" } },
-                    font: { bold: true, color: { rgb: "FFFFFF" }, size: 10 },
-                    alignment: { horizontal: "center", vertical: "center" },
-                    border: bordaSuave
-                };
-            } else if (R >= 7 && R < idxTitle - 1) {
-                const isPar = (R % 2 === 0);
-                cell.s = {
-                    fill: { fgColor: { rgb: isPar ? "F8FAFC" : "FFFFFF" } },
-                    font: { color: { rgb: "334155" }, size: 9.5 },
-                    alignment: { horizontal: C <= 1 ? "left" : "center", vertical: "center" },
-                    border: bordaSuave
-                };
-                if (C === 2) cell.s.font = { bold: true, color: { rgb: "0F172A" }, size: 9.5 };
-                if (C === 3) {
-                    const vStr = String(cell.v || "");
-                    cell.s.font = { bold: true, color: { rgb: vStr.startsWith("+") ? "059669" : (vStr.startsWith("-") ? "DC2626" : "334155") }, size: 9.5 };
-                }
-                if (C === 4) cell.s.font = { bold: true, color: { rgb: "EA580C" }, size: 9.5 };
-                if (C === 5) {
-                    const vStr = String(cell.v || "");
-                    cell.s.font = { bold: true, color: { rgb: vStr.startsWith("+") ? "059669" : (vStr.startsWith("-") ? "DC2626" : "334155") }, size: 9.5 };
-                }
-            } else if (R === idxTitle) {
-                cell.s = {
-                    fill: { fgColor: { rgb: "0F172A" } },
-                    font: { bold: true, color: { rgb: "FFFFFF" }, size: 10 },
-                    alignment: { horizontal: "center", vertical: "center" },
-                    border: bordaSuave
-                };
-            } else if (R >= idxTrab && R <= idxResultadoGeral) {
-                if (C <= 3) {
-                    cell.s = { fill: { fgColor: { rgb: "F8FAFC" } }, font: { bold: true, color: { rgb: "334155" }, size: 9.5 }, alignment: { horizontal: "right", vertical: "center" }, border: bordaSuave };
-                } else {
-                    let corTexto = "0F172A";
-                    if (R === idxResultadoGeral) corTexto = somaGeralResultado > 0 ? "059669" : (saldoGeralResultado < 0 ? "DC2626" : "0F172A");
-                    if (R === idxFolgaBh) corTexto = "EA580C";
-                    cell.s = { fill: { fgColor: { rgb: "FFFFFF" } }, font: { bold: true, color: { rgb: corTexto }, size: 10.5 }, alignment: { horizontal: "center", vertical: "center" }, border: bordaSuave };
-                }
-            } else if (R === idxAssinatura) {
-                cell.s = {
-                    font: { bold: true, color: { rgb: "1E293B" }, size: 10 },
-                    alignment: { horizontal: "center", vertical: "top" },
-                    border: { top: { style: "medium", color: { rgb: "0F172A" } } }
-                };
+        if (filtroInicio && filtroFim) {
+            dadosRelatorio = preencherCalendarioCompleto(dadosRelatorio, filtroInicio, filtroFim, filtroColab);
+        } else {
+            if (filtroInicio) {
+                const dInicio = new Date(filtroInicio + "T00:00:00");
+                dadosRelatorio = dadosRelatorio.filter(r => {
+                    if(!r.data) return false;
+                    const p = r.data.split('/');
+                    if(p.length !== 3) return false;
+                    return new Date(p[2], p[1]-1, p[0]) >= dInicio;
+                });
+            }
+            if (filtroFim) {
+                const dFim = new Date(filtroFim + "T23:59:59");
+                dadosRelatorio = dadosRelatorio.filter(r => {
+                    if(!r.data) return false;
+                    const p = r.data.split('/');
+                    if(p.length !== 3) return false;
+                    return new Date(p[2], p[1]-1, p[0]) <= dFim;
+                });
             }
         }
+
+        if (dadosRelatorio.length === 0) {
+            exibirAlertaTop("Sem Dados", "Não há dados consolidados para o colaborador filtrado.");
+            return;
+        }
+
+        const dadosMensais = consolidarPorMes(dadosRelatorio);
+
+        const user = bancoUsuarios.find(u => String(u.id) === String(filtroColab)) || {};
+        const colabNome = String(user.nome || dadosRelatorio[0].nome || "Colaborador");
+        const colabCpf = user.cpf || "-";
+        const colabCargo = user.cargo || user.funcao || "-";
+        const nomeEmpresa = dadosEmpresaAtiva.nome || sessionStorage.getItem("nome_empresa_ativa") || "Empresa Parceira";
+        const cnpjEmpresa = dadosEmpresaAtiva.cnpj || "-";
+        const dataEmissao = new Date().toLocaleDateString('pt-BR');
+
+        const matrizGerencial = [
+            ["RELATÓRIO GERENCIAL MENSAL - BANCO DE HORAS"],
+            [],
+            ["EMPRESA:", nomeEmpresa, "", "CNPJ:", cnpjEmpresa, ""],
+            ["COLABORADOR:", colabNome, "", "CPF:", colabCpf, ""],
+            ["CARGO / FUNÇÃO:", colabCargo, "", "EMISSÃO:", dataEmissao, ""],
+            [],
+            ["Mês / Ano", "Colaborador", "Horas Trab.", "Horas Extras", "Folga BH", "Resultado"]
+        ];
+
+        let somaGeralTrab = 0;
+        let somaGeralBh = 0;
+        let somaGeralResultado = 0;
+
+        dadosMensais.forEach(m => {
+            somaGeralTrab += m.minutosTrabalhadosNum;
+            somaGeralBh += m.minutosFolgaBhNum;
+            somaGeralResultado += m.resultadoGeralNum;
+
+            const strTrab = formatarMinutosParaString(m.minutosTrabalhadosNum);
+            
+            let strExtra = "00:00";
+            if (m.minutosExtrasPositivosNum > 0) strExtra = `+${formatarMinutosParaString(m.minutosExtrasPositivosNum)}`;
+
+            const strBh = m.minutosFolgaBhNum > 0 ? `- ${formatarMinutosParaString(m.minutosFolgaBhNum)}` : "-";
+
+            let strRes = "00:00";
+            if (m.resultadoGeralNum > 0) strRes = `+${formatarMinutosParaString(m.resultadoGeralNum)}`;
+            else if (m.resultadoGeralNum < 0) strRes = `-${formatarMinutosParaString(Math.abs(m.resultadoGeralNum))}`;
+
+            matrizGerencial.push([
+                m.rotulo,
+                m.colaborador,
+                strTrab,
+                strExtra,
+                strBh,
+                strRes
+            ]);
+        });
+
+        const strResultadoGeralAbs = formatarMinutosParaString(Math.abs(somaGeralResultado));
+        let textoResultadoGeral = "00:00 (Quitado)";
+        if (somaGeralResultado > 0) textoResultadoGeral = `+ ${strResultadoGeralAbs} (Saldo Positivo)`;
+        else if (somaGeralResultado < 0) textoResultadoGeral = `- ${strResultadoGeralAbs} (Saldo Devedor)`;
+
+        matrizGerencial.push([]);
+        const idxTitle = matrizGerencial.length;
+        matrizGerencial.push(["RESUMO GERAL CUMULATIVO", "", "", "", "", ""]);
+
+        const idxTrab = matrizGerencial.length;
+        matrizGerencial.push(["TOTAL DE HORAS TRABALHADAS:", "", "", "", formatarMinutosParaString(somaGeralTrab), ""]);
+
+        const idxFolgaBh = matrizGerencial.length;
+        matrizGerencial.push(["TOTAL BANCO DE HORAS COMPENSADO:", "", "", "", `- ${formatarMinutosParaString(somaGeralBh)}`, ""]);
+
+        const idxResultadoGeral = matrizGerencial.length;
+        matrizGerencial.push(["RESULTADO GERAL CUMULATIVO:", "", "", "", textoResultadoGeral, ""]);
+
+        matrizGerencial.push([]);
+        matrizGerencial.push([]);
+        matrizGerencial.push([]);
+
+        const idxAssinatura = matrizGerencial.length;
+        matrizGerencial.push(["", "Assinatura do Colaborador", "", "", "", ""]);
+
+        const worksheet = XLSX.utils.aoa_to_sheet(matrizGerencial);
+
+        const bordaSuave = {
+            top: { style: "thin", color: { rgb: "CBD5E1" } },
+            bottom: { style: "thin", color: { rgb: "CBD5E1" } },
+            left: { style: "thin", color: { rgb: "CBD5E1" } },
+            right: { style: "thin", color: { rgb: "CBD5E1" } }
+        };
+
+        const range = XLSX.utils.decode_range(worksheet['!ref']);
+        for (let R = range.s.r; R <= range.e.r; ++R) {
+            for (let C = range.s.c; C <= range.e.c; ++C) {
+                const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+                if (!worksheet[cellAddress]) worksheet[cellAddress] = { t: 's', v: '' };
+                const cell = worksheet[cellAddress];
+
+                if (R === 0) {
+                    cell.s = {
+                        fill: { fgColor: { rgb: "0F172A" } },
+                        font: { bold: true, color: { rgb: "F97316" }, size: 14, name: "Calibri" },
+                        alignment: { horizontal: "center", vertical: "center" }
+                    };
+                } else if (R >= 2 && R <= 4) {
+                    if ([0, 3].includes(C) && cell.v) {
+                        cell.s = { fill: { fgColor: { rgb: "F1F5F9" } }, font: { bold: true, color: { rgb: "475569" }, size: 9 }, border: bordaSuave };
+                    } else {
+                        cell.s = { fill: { fgColor: { rgb: "FFFFFF" } }, font: { bold: true, color: { rgb: "0F172A" }, size: 9.5 }, border: bordaSuave };
+                    }
+                } else if (R === 6) {
+                    cell.s = {
+                        fill: { fgColor: { rgb: "0F172A" } },
+                        font: { bold: true, color: { rgb: "FFFFFF" }, size: 10 },
+                        alignment: { horizontal: "center", vertical: "center" },
+                        border: bordaSuave
+                    };
+                } else if (R >= 7 && R < idxTitle - 1) {
+                    const isPar = (R % 2 === 0);
+                    cell.s = {
+                        fill: { fgColor: { rgb: isPar ? "F8FAFC" : "FFFFFF" } },
+                        font: { color: { rgb: "334155" }, size: 9.5 },
+                        alignment: { horizontal: C <= 1 ? "left" : "center", vertical: "center" },
+                        border: bordaSuave
+                    };
+                    if (C === 2) cell.s.font = { bold: true, color: { rgb: "0F172A" }, size: 9.5 };
+                    if (C === 3) {
+                        const vStr = String(cell.v || "");
+                        cell.s.font = { bold: true, color: { rgb: vStr.startsWith("+") ? "059669" : (vStr.startsWith("-") ? "DC2626" : "334155") }, size: 9.5 };
+                    }
+                    if (C === 4) cell.s.font = { bold: true, color: { rgb: "EA580C" }, size: 9.5 };
+                    if (C === 5) {
+                        const vStr = String(cell.v || "");
+                        cell.s.font = { bold: true, color: { rgb: vStr.startsWith("+") ? "059669" : (vStr.startsWith("-") ? "DC2626" : "334155") }, size: 9.5 };
+                    }
+                } else if (R === idxTitle) {
+                    cell.s = {
+                        fill: { fgColor: { rgb: "0F172A" } },
+                        font: { bold: true, color: { rgb: "FFFFFF" }, size: 10 },
+                        alignment: { horizontal: "center", vertical: "center" },
+                        border: bordaSuave
+                    };
+                } else if (R >= idxTrab && R <= idxResultadoGeral) {
+                    if (C <= 3) {
+                        cell.s = { fill: { fgColor: { rgb: "F8FAFC" } }, font: { bold: true, color: { rgb: "334155" }, size: 9.5 }, alignment: { horizontal: "right", vertical: "center" }, border: bordaSuave };
+                    } else {
+                        let corTexto = "0F172A";
+                        if (R === idxResultadoGeral) corTexto = somaGeralResultado > 0 ? "059669" : (somaGeralResultado < 0 ? "DC2626" : "0F172A");
+                        if (R === idxFolgaBh) corTexto = "EA580C";
+                        cell.s = { fill: { fgColor: { rgb: "FFFFFF" } }, font: { bold: true, color: { rgb: corTexto }, size: 10.5 }, alignment: { horizontal: "center", vertical: "center" }, border: bordaSuave };
+                    }
+                } else if (R === idxAssinatura) {
+                    cell.s = {
+                        font: { bold: true, color: { rgb: "1E293B" }, size: 10 },
+                        alignment: { horizontal: "center", vertical: "top" },
+                        border: { top: { style: "medium", color: { rgb: "0F172A" } } }
+                    };
+                }
+            }
+        }
+
+        worksheet['!merges'] = [
+            { s: { r: 0, c: 0 }, e: { r: 0, c: 5 } },
+            { s: { r: 2, c: 1 }, e: { r: 2, c: 2 } },
+            { s: { r: 2, c: 4 }, e: { r: 2, c: 5 } },
+            { s: { r: 3, c: 1 }, e: { r: 3, c: 2 } },
+            { s: { r: 3, c: 4 }, e: { r: 3, c: 5 } },
+            { s: { r: 4, c: 1 }, e: { r: 4, c: 2 } },
+            { s: { r: 4, c: 4 }, e: { r: 4, c: 5 } },
+            { s: { r: idxTitle, c: 0 }, e: { r: idxTitle, c: 5 } },
+            { s: { r: idxTrab, c: 0 }, e: { r: idxTrab, c: 3 } },
+            { s: { r: idxTrab, c: 4 }, e: { r: idxTrab, c: 5 } },
+            { s: { r: idxFolgaBh, c: 0 }, e: { r: idxFolgaBh, c: 3 } },
+            { s: { r: idxFolgaBh, c: 4 }, e: { r: idxFolgaBh, c: 5 } },
+            { s: { r: idxResultadoGeral, c: 0 }, e: { r: idxResultadoGeral, c: 3 } },
+            { s: { r: idxResultadoGeral, c: 4 }, e: { r: idxResultadoGeral, c: 5 } },
+            { s: { r: idxAssinatura, c: 1 }, e: { r: idxAssinatura, c: 4 } }
+        ];
+
+        worksheet['!cols'] = [
+            { wch: 20 },
+            { wch: 32 },
+            { wch: 14 },
+            { wch: 14 },
+            { wch: 18 },
+            { wch: 18 }
+        ];
+
+        const nomeLimpo = colabNome.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9]/g, "_");
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Resumo_Mensal_BH");
+        XLSX.writeFile(workbook, `Relatorio_Gerencial_Mensal_${nomeLimpo}.xlsx`);
+    } catch (errGer) {
+        console.error("Erro ao exportar Excel Gerencial:", errGer);
+        exibirAlertaTop("⚠️ Erro na Exportação", "Não foi possível gerar a planilha gerencial: " + (errGer.message || "Tente novamente."));
     }
-
-    worksheet['!merges'] = [
-        { s: { r: 0, c: 0 }, e: { r: 0, c: 5 } },
-        { s: { r: 2, c: 1 }, e: { r: 2, c: 2 } },
-        { s: { r: 2, c: 4 }, e: { r: 2, c: 5 } },
-        { s: { r: 3, c: 1 }, e: { r: 3, c: 2 } },
-        { s: { r: 3, c: 4 }, e: { r: 3, c: 5 } },
-        { s: { r: 4, c: 1 }, e: { r: 4, c: 2 } },
-        { s: { r: 4, c: 4 }, e: { r: 4, c: 5 } },
-        { s: { r: idxTitle, c: 0 }, e: { r: idxTitle, c: 5 } },
-        { s: { r: idxTrab, c: 0 }, e: { r: idxTrab, c: 3 } },
-        { s: { r: idxTrab, c: 4 }, e: { r: idxTrab, c: 5 } },
-        { s: { r: idxFolgaBh, c: 0 }, e: { r: idxFolgaBh, c: 3 } },
-        { s: { r: idxFolgaBh, c: 4 }, e: { r: idxFolgaBh, c: 5 } },
-        { s: { r: idxResultadoGeral, c: 0 }, e: { r: idxResultadoGeral, c: 3 } },
-        { s: { r: idxResultadoGeral, c: 4 }, e: { r: idxResultadoGeral, c: 5 } },
-        { s: { r: idxAssinatura, c: 1 }, e: { r: idxAssinatura, c: 4 } }
-    ];
-
-    worksheet['!cols'] = [
-        { wch: 20 },
-        { wch: 32 },
-        { wch: 14 },
-        { wch: 14 },
-        { wch: 18 },
-        { wch: 18 }
-    ];
-
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Resumo_Mensal_BH");
-    XLSX.writeFile(workbook, `Relatorio_Gerencial_Mensal_${colabNome.replace(/ /g, "_")}.xlsx`);
 }
 
 let idConfigNuvemAtual = null;
