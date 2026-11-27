@@ -670,6 +670,7 @@ function consolidarLogsBrutos(logsArray) {
                 saida: "-",
                 minutosReaisFisicosNum: 0,
                 minutosTrabalhadosNum: 0,
+                minutosBonus100Num: 0,
                 minutosExtrasNum: 0,
                 minutosEsperadosNum: 0,
                 minutosFolgaBhNum: 0,
@@ -785,16 +786,17 @@ function consolidarLogsBrutos(logsArray) {
                 cargaObrigatoriaDoDia = minCalc !== null ? minCalc : 480;
             }
 
-            // Regra Hora Extra 100% (Domingo ou Feriado Trabalhado): dobra as horas físicas e zera carga obrigatória
+            // Regra Hora Extra 100% (Domingo ou Feriado Trabalhado):
+            // Mostra 04:00 trabalhadas + 04:00 extras na linha, e credita 08:00 no saldo final
             if (r.statusDia === "HORA_EXTRA_100") {
-                const minutosDobrados = minutosTrabalhados * 2;
                 cargaObrigatoriaDoDia = 0;
-                r.minutosTrabalhadosNum = minutosDobrados;
-                r.horasTrabalhadas = formatarMinutosParaString(minutosDobrados);
+                r.minutosTrabalhadosNum = minutosTrabalhados;
+                r.horasTrabalhadas = formatarMinutosParaString(minutosTrabalhados);
                 r.minutosEsperadosNum = 0;
-                r.minutosExtrasNum = minutosDobrados;
-                r.horasExtras = minutosDobrados > 0 ? `+${formatarMinutosParaString(minutosDobrados)}` : "00:00";
-                r.classeCorExtra = minutosDobrados > 0 ? "text-success" : "text-secondary";
+                r.minutosExtrasNum = minutosTrabalhados;
+                r.minutosBonus100Num = minutosTrabalhados;
+                r.horasExtras = minutosTrabalhados > 0 ? `+${formatarMinutosParaString(minutosTrabalhados)}` : "00:00";
+                r.classeCorExtra = minutosTrabalhados > 0 ? "text-success" : "text-secondary";
                 return;
             }
 
@@ -935,6 +937,7 @@ function preencherCalendarioCompleto(dadosConsolidados, dataInicioStr, dataFimSt
                 saida: "-",
                 minutosReaisFisicosNum: 0,
                 minutosTrabalhadosNum: 0,
+                minutosBonus100Num: 0,
                 minutosEsperadosNum: cargaObrigatoria,
                 minutosExtrasNum: minExtras,
                 minutosFolgaBhNum: 0,
@@ -1263,6 +1266,7 @@ function consolidarPorMes(dadosConsolidados) {
                 rotulo: rotuloMes,
                 colaborador: r.nome || "Colaborador",
                 minutosTrabalhadosNum: 0,
+                minutosBonus100Num: 0,
                 minutosEsperadosNum: 0,
                 minutosExtrasPositivosNum: 0,
                 minutosFolgaBhNum: 0
@@ -1270,6 +1274,7 @@ function consolidarPorMes(dadosConsolidados) {
         }
 
         mapaMeses[chaveMes].minutosTrabalhadosNum += (r.minutosTrabalhadosNum || 0);
+        mapaMeses[chaveMes].minutosBonus100Num += (r.minutosBonus100Num || 0);
         mapaMeses[chaveMes].minutosEsperadosNum += (r.minutosEsperadosNum || 0);
         mapaMeses[chaveMes].minutosFolgaBhNum += (r.minutosFolgaBhNum || 0);
         if (r.minutosExtrasNum && r.minutosExtrasNum > 0) {
@@ -1279,7 +1284,7 @@ function consolidarPorMes(dadosConsolidados) {
 
     const listaMeses = Object.values(mapaMeses).sort((a, b) => a.chave.localeCompare(b.chave));
     listaMeses.forEach(m => {
-        m.resultadoGeralNum = (m.minutosTrabalhadosNum + m.minutosFolgaBhNum) - m.minutosEsperadosNum;
+        m.resultadoGeralNum = (m.minutosTrabalhadosNum + m.minutosBonus100Num + m.minutosFolgaBhNum) - m.minutosEsperadosNum;
     });
 
     return listaMeses;
@@ -1332,6 +1337,7 @@ async function filtrarRelatorioTela() {
     }
 
     let acumuladorTrabalhadas = 0;
+    let acumuladorBonus100 = 0;
     let acumuladorEsperadas = 0;
     let acumuladorFolgaBh = 0;
 
@@ -1345,6 +1351,7 @@ async function filtrarRelatorioTela() {
 
     dadosConsolidados.forEach(r => {
         acumuladorTrabalhadas += r.minutosTrabalhadosNum;
+        acumuladorBonus100 += (r.minutosBonus100Num || 0);
         acumuladorEsperadas += r.minutosEsperadosNum;
 
         if (r.minutosFolgaBhNum) {
@@ -1355,10 +1362,10 @@ async function filtrarRelatorioTela() {
         let obsParaExibir = r.observacoes ? [...r.observacoes] : [];
         if (r.statusDia === "HORA_EXTRA_100" && obsParaExibir.length === 0) {
             const strReais = formatarMinutosParaString(r.minutosReaisFisicosNum || 0);
-            const strDobradas = formatarMinutosParaString(r.minutosTrabalhadosNum || 0);
+            const strTotal = formatarMinutosParaString((r.minutosReaisFisicosNum || 0) * 2);
             obsParaExibir.push({
                 tipo: "Hora Extra 100%",
-                texto: `Hora Extra 100% (${strReais} reais x2 = ${strDobradas})`
+                texto: `Hora Extra 100% (${strReais} trab. + ${strReais} extra = ${strTotal})`
             });
         }
 
@@ -1416,7 +1423,7 @@ async function filtrarRelatorioTela() {
         tabelaBody.appendChild(tr);
     });
 
-    const totalRealizadoMinutos = acumuladorTrabalhadas + acumuladorFolgaBh;
+    const totalRealizadoMinutos = acumuladorTrabalhadas + acumuladorBonus100 + acumuladorFolgaBh;
     const saldoLiquidoMinutos = totalRealizadoMinutos - acumuladorEsperadas;
     const saldoAbsoluto = Math.abs(saldoLiquidoMinutos);
     const strSaldoReal = formatarMinutosParaString(saldoAbsoluto);
@@ -1602,11 +1609,13 @@ async function exportarPontosExcel() {
             ["Data", "Colaborador", "Entrada", "Almoço Ida", "Almoço Volta", "Saída", "Horas Trab.", "Horas Extras", "Observações/Justificativas"]
         ];
         let somaTrab = 0;
+        let somaBonus100 = 0;
         let somaEsperada = 0;
         let somaFolgaBh = 0;
 
         dadosParaPlanilha.forEach(r => {
             somaTrab += r.minutosTrabalhadosNum;
+            somaBonus100 += (r.minutosBonus100Num || 0);
             somaEsperada += r.minutosEsperadosNum;
 
             if (r.minutosFolgaBhNum) {
@@ -1623,8 +1632,8 @@ async function exportarPontosExcel() {
                 }
             } else if (r.statusDia === "HORA_EXTRA_100") {
                 const strReais = formatarMinutosParaString(r.minutosReaisFisicosNum || 0);
-                const strDobradas = formatarMinutosParaString(r.minutosTrabalhadosNum || 0);
-                textoObsFinal = `Hora Extra 100% (${strReais} reais x2 = ${strDobradas})`;
+                const strTotal = formatarMinutosParaString((r.minutosReaisFisicosNum || 0) * 2);
+                textoObsFinal = `Hora Extra 100% (${strReais} trab. + ${strReais} extra = ${strTotal})`;
             } else if (r.statusDia === "FERIADO") {
                 textoObsFinal = "Feriado Abonado";
             } else if (r.statusDia === "ATESTADO") {
@@ -1663,7 +1672,7 @@ async function exportarPontosExcel() {
             matrizPlanilha.push([dataStrExcel, r.nome, r.entrada, r.almocoIda, r.almocoVolta, r.saida, r.horasTrabalhadas, r.horasExtras, textoObsFinal]);
         });
 
-        const totalRealizadoMinutosExcel = somaTrab + somaFolgaBh;
+        const totalRealizadoMinutosExcel = somaTrab + somaBonus100 + somaFolgaBh;
         const saldoLiquidoExcel = totalRealizadoMinutosExcel - somaEsperada;
         const strSaldoExcel = formatarMinutosParaString(Math.abs(saldoLiquidoExcel));
 
