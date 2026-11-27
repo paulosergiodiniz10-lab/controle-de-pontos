@@ -29,6 +29,9 @@ document.addEventListener("DOMContentLoaded", async () => {
         window.location.href = "login-admin.html"; 
         return;
     }
+
+    garantirOpcaoHoraExtra100NoSelect();
+
     if (localStorage.getItem("ponto_web_sidebar_collapsed") === "true") {
         const sidebar = document.getElementById("sidebarMenu");
         const mainContent = document.getElementById("mainContentContainer");
@@ -71,6 +74,19 @@ document.addEventListener("DOMContentLoaded", async () => {
         document.getElementById("sidebarNomeEmpresa").innerText = "Modo de Segurança";
     }
 });
+
+// Garante que a opção Hora Extra 100% exista no modal mesmo antes de alterar o admin.html
+function garantirOpcaoHoraExtra100NoSelect() {
+    const selectStatus = document.getElementById("ajusteStatusDia");
+    if (!selectStatus) return;
+    const jaExiste = Array.from(selectStatus.options).some(opt => opt.value === "HORA_EXTRA_100");
+    if (!jaExiste) {
+        const option = document.createElement("option");
+        option.value = "HORA_EXTRA_100";
+        option.text = "Hora Extra 100% (Domingo / Feriado - Dobrada)";
+        selectStatus.appendChild(option);
+    }
+}
 
 function toggleSidebarMenu() {
     const sidebar = document.getElementById("sidebarMenu");
@@ -652,6 +668,7 @@ function consolidarLogsBrutos(logsArray) {
                 almocoIda: "-",
                 almocoVolta: "-",
                 saida: "-",
+                minutosReaisFisicosNum: 0,
                 minutosTrabalhadosNum: 0,
                 minutosExtrasNum: 0,
                 minutosEsperadosNum: 0,
@@ -731,6 +748,8 @@ function consolidarLogsBrutos(logsArray) {
             }
         }
 
+        r.minutosReaisFisicosNum = minutosTrabalhados;
+
         const partesData = r.data.split('/');
         if (partesData.length === 3) {
             const objetoData = new Date(partesData[2], partesData[1] - 1, partesData[0], 0, 0, 0, 0);
@@ -764,6 +783,19 @@ function consolidarLogsBrutos(logsArray) {
             } else { 
                 const minCalc = bolarTempoParaMinutos(cargaSegSex);
                 cargaObrigatoriaDoDia = minCalc !== null ? minCalc : 480;
+            }
+
+            // Regra Hora Extra 100% (Domingo ou Feriado Trabalhado): dobra as horas físicas e zera carga obrigatória
+            if (r.statusDia === "HORA_EXTRA_100") {
+                const minutosDobrados = minutosTrabalhados * 2;
+                cargaObrigatoriaDoDia = 0;
+                r.minutosTrabalhadosNum = minutosDobrados;
+                r.horasTrabalhadas = formatarMinutosParaString(minutosDobrados);
+                r.minutosEsperadosNum = 0;
+                r.minutosExtrasNum = minutosDobrados;
+                r.horasExtras = minutosDobrados > 0 ? `+${formatarMinutosParaString(minutosDobrados)}` : "00:00";
+                r.classeCorExtra = minutosDobrados > 0 ? "text-success" : "text-secondary";
+                return;
             }
 
             if (r.statusDia === "FERIADO" || r.statusDia === "FERIAS" || r.statusDia === "ATESTADO" || r.statusDia === "FOLGA") {
@@ -901,6 +933,7 @@ function preencherCalendarioCompleto(dadosConsolidados, dataInicioStr, dataFimSt
                 almocoIda: "-",
                 almocoVolta: "-",
                 saida: "-",
+                minutosReaisFisicosNum: 0,
                 minutosTrabalhadosNum: 0,
                 minutosEsperadosNum: cargaObrigatoria,
                 minutosExtrasNum: minExtras,
@@ -988,6 +1021,7 @@ window.alternarCamposPorStatus = function() {
 };
 
 window.abrirModalEditarDia = function(diaBase64) {
+    garantirOpcaoHoraExtra100NoSelect();
     const obj = JSON.parse(decodeURIComponent(escape(atob(diaBase64))));
 
     document.getElementById("modalAjusteNome").innerText = obj.nome;
@@ -1317,14 +1351,27 @@ async function filtrarRelatorioTela() {
             acumuladorFolgaBh += r.minutosFolgaBhNum;
         }
 
+        // Prepara lista de observações incluindo explicação automática de Hora Extra 100% quando aplicável
+        let obsParaExibir = r.observacoes ? [...r.observacoes] : [];
+        if (r.statusDia === "HORA_EXTRA_100" && obsParaExibir.length === 0) {
+            const strReais = formatarMinutosParaString(r.minutosReaisFisicosNum || 0);
+            const strDobradas = formatarMinutosParaString(r.minutosTrabalhadosNum || 0);
+            obsParaExibir.push({
+                tipo: "Hora Extra 100%",
+                texto: `Hora Extra 100% (${strReais} reais x2 = ${strDobradas})`
+            });
+        }
+
         let btnObsHtml = `<span class="badge bg-success bg-opacity-25 text-success border border-success-subtle px-2" style="font-size:0.75rem;">● Sem Obs.</span>`;
-        if (r.observacoes && r.observacoes.length > 0) {
-            const obsStrBase64 = btoa(unescape(encodeURIComponent(JSON.stringify(r.observacoes))));
+        if (obsParaExibir.length > 0) {
+            const obsStrBase64 = btoa(unescape(encodeURIComponent(JSON.stringify(obsParaExibir))));
             btnObsHtml = `<button class="btn btn-sm btn-danger fw-bold shadow-sm" style="font-size: 0.7rem; padding: 3px 8px; animation: pulse 2s infinite;" onclick="abrirModalLerObs('${obsStrBase64}')">🔔 Ver Obs.</button>`;
         }
         let tagStatusHtml = "";
         if (r.isPreAdmissao) {
             tagStatusHtml = ` <span class="badge bg-secondary bg-opacity-25 text-secondary border ms-1" style="font-size:0.65rem;">PRÉ-ADMISSÃO</span>`;
+        } else if (r.statusDia === "HORA_EXTRA_100") {
+            tagStatusHtml = ` <span class="badge bg-success text-white border ms-1" style="font-size:0.65rem;">HORA EXTRA 100%</span>`;
         } else if (r.statusDia === "FERIADO") {
             tagStatusHtml = ` <span class="badge text-white border ms-1" style="font-size:0.65rem; background-color: #6f42c1 !important;">FERIADO</span>`;
         } else if (r.statusDia === "ATESTADO") {
@@ -1574,6 +1621,10 @@ async function exportarPontosExcel() {
                 if (observacoesTextos.length > 0) {
                     textoObsFinal = observacoesTextos.join(" | ");
                 }
+            } else if (r.statusDia === "HORA_EXTRA_100") {
+                const strReais = formatarMinutosParaString(r.minutosReaisFisicosNum || 0);
+                const strDobradas = formatarMinutosParaString(r.minutosTrabalhadosNum || 0);
+                textoObsFinal = `Hora Extra 100% (${strReais} reais x2 = ${strDobradas})`;
             } else if (r.statusDia === "FERIADO") {
                 textoObsFinal = "Feriado Abonado";
             } else if (r.statusDia === "ATESTADO") {
@@ -1595,6 +1646,8 @@ async function exportarPontosExcel() {
             let tagExcel = "";
             if (r.isPreAdmissao) {
                 tagExcel = " (PRÉ-ADMISSÃO)";
+            } else if (r.statusDia === "HORA_EXTRA_100") {
+                tagExcel = " (HORA EXTRA 100%)";
             } else if (r.statusDia === "FOLGA_BH") {
                 tagExcel = " (FOLGA BH)";
             } else if (r.statusDia === "FOLGA_BH_PARCIAL") {
@@ -1809,7 +1862,7 @@ async function exportarPontosExcel() {
         ];
 
         worksheet['!cols'] = [
-            { wch: 22 },
+            { wch: 24 },
             { wch: 36 },
             { wch: 10 },
             { wch: 12 },
