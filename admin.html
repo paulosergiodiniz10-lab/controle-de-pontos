@@ -680,6 +680,7 @@
                       <label class="form-label small fw-bold text-dark">Status / Motivo do Dia</label>
                       <select id="ajusteStatusDia" class="form-select border-primary" onchange="alternarCamposPorStatus()">
                           <option value="NORMAL">Normal (Calcula Horas Padrão)</option>
+                          <option value="HORA_EXTRA_100">Hora Extra 100% (Domingo / Feriado - Paga Dobrado)</option>
                           <option value="FERIADO">Feriado</option>
                           <option value="ATESTADO">Atestado Médico (Dia Integral)</option>
                           <option value="ATESTADO_PARCIAL">Atestado Parcial (Horas)</option>
@@ -693,17 +694,17 @@
                   <!-- CAMPO DE OBSERVAÇÃO / JUSTIFICATIVA PARA QUALQUER STATUS -->
                   <div class="mb-3 text-start">
                       <label class="form-label small fw-bold text-dark">Observação / Justificativa</label>
-                      <textarea id="ajusteObservacaoTexto" class="form-control form-control-sm" rows="2" placeholder="Ex: Atestado entregue, compensação de banco de horas, saída antecipada..."></textarea>
+                      <textarea id="ajusteObservacaoTexto" class="form-control form-control-sm" rows="2" placeholder="Ex: Atestado entregue, compensação de banco de horas, domingo trabalhado..."></textarea>
                   </div>
 
-                  <!-- CAMPO SIMPLES E DIRETO: QUANTIDADE DE HORAS A ABONAR/UTILIZAR (OPÇÃO 1) -->
+                  <!-- CAMPO SIMPLES E DIRETO: QUANTIDADE DE HORAS A ABONAR/UTILIZAR -->
                   <div id="containerHorariosParciais" class="p-3 bg-light border border-primary-subtle rounded mb-3" style="display: none;">
                       <label id="tituloHorariosParciais" for="ajusteHorasAbono" class="form-label small fw-bold text-primary mb-1">⏱️ Quantidade de Horas a Abonar (HH:MM):</label>
                       <div class="input-group">
                           <input type="time" id="ajusteHorasAbono" class="form-control border-primary fw-bold text-primary" placeholder="00:00">
                       </div>
                       <small id="ajudaHorasAbono" class="text-muted d-block mt-1" style="font-size: 0.75rem;">
-                          * Informe quantas horas deseja abonar para completar a jornada do dia (Ex: 02:10, 02:00, 04:00).
+- Informe quantas horas deseja abonar para completar a jornada do dia (Ex: 02:10, 02:00, 04:00).
                       </small>
                   </div>
 
@@ -721,7 +722,7 @@
                           </div>
                       </div>
                       <small class="text-muted d-block mt-2" style="font-size: 0.75rem;">
-                          * Todos os dias compreendidos entre o início e o fim serão marcados de uma só vez.
+- Todos os dias compreendidos entre o início e o fim serão marcados de uma só vez.
                       </small>
                   </div>
 
@@ -775,7 +776,6 @@
 
         const status = statusEl.value;
 
-        // Controle do Campo Direto de Abono de Horas (Atestado Parcial ou Folga BH Parcial)
         if (boxParcial) {
             if (status === 'ATESTADO_PARCIAL' || status === 'FOLGA_BH_PARCIAL') {
                 boxParcial.style.display = 'block';
@@ -796,7 +796,6 @@
             }
         }
 
-        // Controle do Período Completo (Férias, Folga, Folga BH Integral, Atestado Integral)
         if (boxPeriodo) {
             if (['FERIAS', 'FOLGA', 'FOLGA_BH', 'ATESTADO'].includes(status)) {
                 boxPeriodo.style.display = 'block';
@@ -805,7 +804,6 @@
             }
         }
 
-        // Controle dos Campos de Batida Padrão (Entrada / Saída)
         if (boxHorarios) {
             if (['FERIAS', 'FOLGA', 'FOLGA_BH', 'ATESTADO'].includes(status)) {
                 boxHorarios.style.display = 'none';
@@ -815,7 +813,6 @@
         }
     }
 
-    // Alternador com estilo visual leve e destravamento automático de datas no Resumo Gerencial
     function alternarModoVisualizacao(modo) {
         const btnDetalhado = document.getElementById('btnModoDetalhado');
         const btnGerencial = document.getElementById('btnModoGerencial');
@@ -831,7 +828,6 @@
             boxGerencial.style.display = 'block';
             legenda.innerText = 'Exibindo Resumo Gerencial Mensal com apuração acumulada de Banco de Horas';
 
-            // Ao entrar na aba Gerencial, limpa as datas travadas e traz o histórico geral de todos os meses
             if (typeof limparSelecaoFiltros === 'function') {
                 limparSelecaoFiltros();
             }
